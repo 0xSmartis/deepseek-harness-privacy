@@ -8,12 +8,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -43,8 +42,7 @@ interface OtlpLogsRequest {
 
 const servers: Server[] = []
 
-// The backend resolves the harness home's anonymous user id at construction;
-// pin DSH_HOME to a temp dir so the suite never touches the ambient ~/.dsh.
+// Pin DSH_HOME so absence checks never inspect the ambient ~/.dsh.
 let tempHome: string
 let previousDshHome: string | undefined
 beforeAll(() => {
@@ -141,7 +139,7 @@ describe('OpenTelemetrySessionBackend wire', () => {
 
     const resource = first.body.resourceLogs[0]!.resource.attributes
     expect(resource).toContainEqual({ key: 'service.name', value: { stringValue: 'deepseek-harness' } })
-    expect(resource).toContainEqual({ key: 'user.id', value: { stringValue: getOrCreateAnonymousUserId() } })
+    expect(resource).not.toContainEqual(expect.objectContaining({ key: 'user.id' }))
 
     const records = allRecords(captures)
     const ledger = records.filter(r => r.scope === '@deepseek-ai/dsh-session-telemetry-otel')
@@ -387,6 +385,7 @@ describe('OpenTelemetrySessionBackend wire', () => {
     await disabledCtx.plugin(SessionStore)
     const disabled = await disabledCtx.plugin(OpenTelemetrySessionBackend, { mode: SessionTelemetryMode.DISABLED })
     expect(disabledCtx.sessionTelemetry.sharing).toBe('disabled')
+    expect(existsSync(join(tempHome, '.anonymous-user-id'))).toBe(false)
     await disabled.dispose()
 
     // An omitted mode is DISABLED, so the default also shares nothing.

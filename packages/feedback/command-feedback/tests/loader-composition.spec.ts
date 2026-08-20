@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -11,7 +11,6 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 
 let root: string | undefined
 let context: Context | undefined
@@ -90,16 +89,16 @@ describe('/feedback real Loader composition through cordis.yml', () => {
     expect(context.commands.list(owner).map(command => command.name)).toContain('feedback')
 
     const accepted = await context.commands.execute(owner, '/feedback the diff view is unreadable', [], signal)
-    const userId = getOrCreateAnonymousUserId({ env: { DSH_HOME: root } })
     expect(accepted?.result).toEqual({
       kind: 'success',
-      text: `Feedback recorded for session feedback-loader-agent\nAnonymous user: ${userId}. Session sharing is not configured.`,
+      text: 'Feedback recorded for session feedback-loader-agent. Session sharing is not configured.',
     })
     const rejected = await context.commands.execute(owner, '/feedback', [], signal)
     expect(rejected?.result).toEqual({
       kind: 'error',
       text: 'Feedback text is required. Usage: /feedback <text>',
     })
+    await expect(access(join(root, '.anonymous-user-id'))).rejects.toMatchObject({ code: 'ENOENT' })
 
     // The domain event owns the payload; generic command bookkeeping omits it.
     expect(owner.session.events.map(event => event.type))

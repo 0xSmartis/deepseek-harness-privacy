@@ -8,7 +8,7 @@
  * behavior — the documented optional-inject fallback.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -21,7 +21,6 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -117,7 +116,7 @@ describe('llm-deepseek real dynamic composition', () => {
     expect(ctx.get('settings')!.describe().map(entry => entry.ns)).toEqual([NS])
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(serverA.headers[0]?.authorization).toBe('Bearer boot-key')
-    expect(serverA.headers[0]?.['x-deepseek-harness-user-id']).toBe(getOrCreateAnonymousUserId())
+    expect(serverA.headers[0]).not.toHaveProperty('x-deepseek-harness-user-id')
 
     // External edits, exactly as a user or the web UI would leave them on disk.
     await writeFile(settingsPath, `llm-deepseek:\n  baseURL: ${serverB.url}\n`)
@@ -147,6 +146,7 @@ describe('llm-deepseek real dynamic composition', () => {
       .toEqual({ configured: true, source: 'file', writable: true })
     await assemble(boot.ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(first.headers[0]?.authorization).toBe('Bearer stored-by-ui')
+    await expect(access(join(home, '.anonymous-user-id'))).rejects.toMatchObject({ code: 'ENOENT' })
     await boot.ctx.fiber.dispose()
     context = undefined
 
@@ -161,6 +161,7 @@ describe('llm-deepseek real dynamic composition', () => {
     await credentials.set(KEY_REF, 'rotated-after-restart')
     await assemble(restarted.ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(second.headers[0]?.authorization).toBe('Bearer rotated-after-restart')
+    await expect(access(join(home, '.anonymous-user-id'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('boots the same adapter on entry config alone, resolving the reference from the environment', async () => {

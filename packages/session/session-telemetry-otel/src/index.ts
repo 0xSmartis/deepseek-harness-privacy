@@ -25,7 +25,6 @@ import {
   type SessionTelemetrySharingStatus,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -201,7 +200,6 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
         // OTel semconv's standard user attribute, carried once per export
         // batch on the Resource rather than per record: the collector
         // aggregates by Resource, and the id is process-stable anyway.
-        'user.id': getOrCreateAnonymousUserId(),
       }),
       processors: [
         new BatchLogRecordProcessor({

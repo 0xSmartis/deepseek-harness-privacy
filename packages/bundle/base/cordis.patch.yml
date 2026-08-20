@@ -134,9 +134,9 @@
     # DSH_TELEMETRY_OTLP_URL overrides the production endpoint. A non-empty
     # DSH_TELEMETRY_DISABLED — any value, including '0'/'false' — opts the
     # process out (the launchers patch the row disabled; config cannot disable
-    # a row). Exports carry the harness home's anonymous user id ($DSH_HOME/.anonymous-user-id,
-    # random UUID; delete the file to reset the identity) as the Resource's
-    # user.id. The exporter/processor values normally bound the shutdown drain
+    # a row). Exports identify only the harness application through the OTel
+    # Resource's service.name and service.version. The exporter/processor values
+    # normally bound the shutdown drain
     # to ~1s against an unreachable collector: exporter.timeoutMillis is both
     # the per-attempt socket timeout and the retry deadline (1s effectively
     # disables the SDK's 5-try backoff), while maxExportBatchSize == maxQueueSize

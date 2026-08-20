@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -7,17 +7,6 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { foldSurface, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTelemetryBackend, type SessionTelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import * as commandFeedback from '@deepseek-ai/dsh-command-feedback'
-
-const { USER_ID, getOrCreateAnonymousUserId } = vi.hoisted(() => {
-  const USER_ID = '01234567-89ab-4cde-8f01-23456789abcd'
-  return { USER_ID, getOrCreateAnonymousUserId: vi.fn(() => USER_ID) }
-})
-
-vi.mock('@deepseek-ai/dsh-anonymous-user-id', () => ({
-  getOrCreateAnonymousUserId,
-}))
-
-beforeEach(() => getOrCreateAnonymousUserId.mockClear())
 
 interface Harness {
   readonly ctx: Context
@@ -125,7 +114,7 @@ describe('/feedback human command', () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.`,
+      text: `Feedback recorded for session ${test.session.id}. Session sharing is not configured.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['the diff view is unreadable'])
     const commandRun = test.session.events.find(event => event.type === 'command/run')
@@ -173,8 +162,8 @@ describe('/feedback human command', () => {
       test.ctx.commands.execute(test.agent, '/feedback second', [], signal),
     ])
     expect(settled.map(item => item?.result)).toEqual([
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.` },
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is not configured.` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}. Session sharing is not configured.` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}. Session sharing is not configured.` },
     ])
     expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
@@ -183,7 +172,7 @@ describe('/feedback human command', () => {
     const test = await harness('full')
     await expect(run(test, ' everything shared')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is enabled.`,
+      text: `Feedback recorded for session ${test.session.id}. Session sharing is enabled.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['everything shared'])
   })
@@ -192,7 +181,7 @@ describe('/feedback human command', () => {
     const test = await harness('feedback-only')
     await expect(run(test, ' gated sharing')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.`,
+      text: `Feedback recorded for session ${test.session.id}. Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['gated sharing'])
   })
@@ -201,7 +190,7 @@ describe('/feedback human command', () => {
     const test = await harness('disabled')
     await expect(run(test, ' local only')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}. Session sharing is disabled.`,
+      text: `Feedback recorded for session ${test.session.id}. Session sharing is disabled.`,
     })
     expect(feedbackTexts(test.session)).toEqual(['local only'])
   })
@@ -226,7 +215,6 @@ describe('/feedback human command', () => {
     }
     await expect(run(test)).resolves.toEqual(expected)
     await expect(run(test, '   \n\t ')).resolves.toEqual(expected)
-    expect(getOrCreateAnonymousUserId).not.toHaveBeenCalled()
     expect(feedbackTexts(test.session)).toEqual([])
     const done = test.session.events.filter(event => event.type === 'command/done')
     expect(done.map(event => event.data.kind)).toEqual(['error', 'error'])

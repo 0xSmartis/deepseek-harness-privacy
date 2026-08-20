@@ -19,7 +19,6 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_REQUEST_IMAGE_BYTES,
@@ -271,12 +270,9 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  let userId: AnonymousUserId | undefined
-  const resolveUserId = (): AnonymousUserId => userId ??= getOrCreateAnonymousUserId()
   const adapter = new DeepSeekAdapter({
     options,
     resolveApiKey,
-    resolveUserId,
     resolveAttachments: () => ctx.get('attachments'),
   })
   ctx.llm.registerConfigurableProviders([

@@ -117,7 +117,7 @@ describe('request-level dynamic configuration', () => {
     expect(serverB.headers[0]?.authorization).toBe('Bearer second-key')
   })
 
-  it('starts keyless and serves the next request once the key arrives', async () => {
+  it('starts keyless and serves the next request without creating a cross-session identity', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
@@ -129,7 +129,7 @@ describe('request-level dynamic configuration', () => {
     await ctx.credentials.set(KEY_REF, 'sk-arrived')
     await prompt(ctx)
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')
-    await expect(access(join(dir, '.anonymous-user-id'))).resolves.toBeUndefined()
+    await expect(access(join(dir, '.anonymous-user-id'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('rejects a stored credential no header can carry, never echoing it in the failure', async () => {

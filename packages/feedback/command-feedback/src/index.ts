@@ -10,7 +10,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionTelemetryBackend, SessionTelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 
 export const name = 'command-feedback'
 export const inject = ['commands']
@@ -92,7 +91,7 @@ function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): Co
   const telemetry = ctx.get('sessionTelemetry')
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}. ${sharingDisclosure(telemetry)}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}. ${sharingDisclosure(telemetry)}`,
   }
 }
 

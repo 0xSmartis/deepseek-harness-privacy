@@ -486,42 +486,28 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('reports full feedback correlation ids in an expandable two-line row', async () => {
+  it.skipIf(MODE === 'record')('reports the session-scoped feedback acknowledgement in a compact row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-feedback-row'))
-    const previousDshHome = process.env.DSH_HOME
-    process.env.DSH_HOME = scaffold.harnessHome
-    try {
-      const input = page.locator('textarea').first()
-      await input.fill('/feedback the diff view is unreadable')
-      await input.press('Enter')
-      const row = page.locator('[data-variant="others"]').filter({
-        hasText: `Feedback recorded for session ${SEED_ID}`,
-      })
-      await row.waitFor({ timeout: 10_000 })
-      const disclosure = row.locator('[data-expandable]')
-      expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
-      await disclosure.click()
-      await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+    const input = page.locator('textarea').first()
+    await input.fill('/feedback the diff view is unreadable')
+    await input.press('Enter')
+    const row = page.locator('[data-variant="others"]').filter({
+      hasText: `Feedback recorded for session ${SEED_ID}`,
+    })
+    await row.waitFor({ timeout: 10_000 })
+    expect(await row.locator('[data-expandable]').count()).toBe(0)
 
-      const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
-      if (agent === undefined) throw new Error('seeded session did not attach an agent')
-      const done = agent.session.events.filter(event => event.type === 'command/done').at(-1)
-      if (done?.type !== 'command/done') throw new Error('feedback command did not settle')
-      const [sessionLine, userLine, extraLine] = done.data.text?.split('\n') ?? []
-      expect(sessionLine).toBe(`Feedback recorded for session ${SEED_ID}`)
-      expect(userLine).toMatch(/^Anonymous user: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i)
-      expect(extraLine).toBeUndefined()
-      const userId = userLine?.match(/^Anonymous user: ([0-9a-f-]+)/i)?.[1]
-      if (userId === undefined) throw new Error('feedback command omitted the user id')
+    const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
+    if (agent === undefined) throw new Error('seeded session did not attach an agent')
+    const done = agent.session.events.filter(event => event.type === 'command/done').at(-1)
+    if (done?.type !== 'command/done') throw new Error('feedback command did not settle')
+    expect(done.data.text).toBe(
+      `Feedback recorded for session ${SEED_ID}. Session sharing is not configured.`,
+    )
 
-      const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
-        .split(SEED_ID).join('{{seededId}}')
-        .split(userId).join('{{userId}}')
-      await compareOrRefreshGolden(FEEDBACK_ROW_EXPECTED, snapshot, MODE)
-    } finally {
-      if (previousDshHome === undefined) delete process.env.DSH_HOME
-      else process.env.DSH_HOME = previousDshHome
-    }
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(FEEDBACK_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('fits short logged context without a scrollport', async () => {

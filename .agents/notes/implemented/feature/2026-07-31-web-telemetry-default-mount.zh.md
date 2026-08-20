@@ -37,5 +37,5 @@ Status: implemented
 ## 后果
 
 - 开发者运行没有遥测配置的 `dsh web` 时，不会发出遥测网络请求。内部部署需设置 `DSH_TELEMETRY_MODE`，并可让 `DSH_TELEMETRY_OTLP_URL` 指向其他 collector。
-- **没有挂载任何脱敏规则**：显式启用的导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须先挂载 `session-telemetry/record` 规则；脱敏规则、其余身份 Resource 属性和使用情况指标仍是独立的部署工作。匿名 user id 由[匿名 user id Note](2026-07-31-telemetry-anonymous-user-id.md)交付。
+- **没有挂载任何脱敏规则**：显式启用的导出即原始捕获副本（用户/助手消息全文、工具参数与工具结果、系统提示词、`session.cwd` 本地路径）。跨信任边界前必须先挂载 `session-telemetry/record` 规则；脱敏规则与使用情况指标仍是独立的部署工作。Resource 仅包含应用身份；[持久 id 移除决策](../simplification/2026-08-20-remove-persistent-anonymous-user-id.md)禁止用户身份。
 - 测试载具默认将数据留在本地；显式启用上传模式的测试提供自己的 collector 和模式。
