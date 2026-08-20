@@ -62,7 +62,7 @@ function lineNumbersAt(content: string, offsets: readonly number[]): number[] {
   })
 }
 
-class MutationPolicy {
+class FilePolicy {
   private readonly policy: SandboxPolicyService | undefined
 
   constructor(ctx: Context) {
@@ -102,8 +102,9 @@ async function statExisting(
   target: FsTarget,
   command: 'view' | 'str_replace' | 'insert',
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<FsInfo> {
-  const info = await ctx.fs.stat(target, exec.signal)
+  const info = await ctx.fs.stat(target, exec.signal, sandboxPolicy)
   if (info === undefined) {
     ctx.emit('fs/observed', target, { kind: 'absent' }, exec)
     throw new FsError(
@@ -187,9 +188,10 @@ async function listDirectory(
   target: FsTarget,
   maxOutputChars: number,
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<string> {
   async function visit(dir: FsTarget, depth: number): Promise<string[]> {
-    const entries = await ctx.fs.listDir(dir, exec.signal)
+    const entries = await ctx.fs.listDir(dir, exec.signal, sandboxPolicy)
     const rows: string[] = []
     for (const entry of entries.filter(candidate =>
       !candidate.name.startsWith('.')
@@ -219,34 +221,34 @@ async function viewPath(
   viewRange: number[] | undefined,
   maxOutputChars: number,
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<string> {
   const target = await resolveTarget(ctx, path, exec.signal)
-  const info = await statExisting(ctx, target, 'view', exec)
+  const info = await statExisting(ctx, target, 'view', exec, sandboxPolicy)
   if (info.type === 'directory') {
     if (viewRange !== undefined) {
       throw new Error('The `view_range` parameter is not allowed when `path` points to a directory.')
     }
-    return listDirectory(ctx, target, maxOutputChars, exec)
+    return listDirectory(ctx, target, maxOutputChars, exec, sandboxPolicy)
   }
   if (info.type !== 'file') {
     throw new FsError(`cannot view "${target.displayPath}": not a regular file or directory`, 'FS_NOT_REGULAR_FILE')
   }
-  const content = await ctx.fs.readText(target, exec.signal)
+  const content = await ctx.fs.readText(target, exec.signal, sandboxPolicy)
   ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
   return formatFileView(target.displayPath, content, maxOutputChars, viewRange)
 }
 
 async function createFile(
   ctx: Context,
-  policy: MutationPolicy,
   path: string,
   fileText: string | undefined,
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<string> {
   const content = requiredForCommand(fileText, 'file_text', 'create')
-  const sandboxPolicy = policy.resolve(exec)
   const target = await resolveTarget(ctx, path, exec.signal)
-  if (await ctx.fs.stat(target, exec.signal) !== undefined) {
+  if (await ctx.fs.stat(target, exec.signal, sandboxPolicy) !== undefined) {
     throw new Error(`File already exists at: ${target.displayPath}. Cannot overwrite files using command \`create\`.`)
   }
   const intent = await ctx.waterfall(
@@ -255,40 +257,34 @@ async function createFile(
     exec,
     () => ({ kind: 'createIfAbsent' } as const),
   )
-  let outcome
-  try {
-    outcome = await ctx.fs.writeText(
-      target,
-      content,
-      intent,
-      exec.signal,
-      sandboxPolicy,
-    )
-  } catch (error: unknown) {
-    throw policy.mapError(error, sandboxPolicy)
-  }
+  const outcome = await ctx.fs.writeText(
+    target,
+    content,
+    intent,
+    exec.signal,
+    sandboxPolicy,
+  )
   ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `New file created successfully at: ${target.displayPath}`
 }
 
 async function replaceInFile(
   ctx: Context,
-  policy: MutationPolicy,
   path: string,
   oldStr: string | undefined,
   newStr: string | undefined,
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<string> {
-  const sandboxPolicy = policy.resolve(exec)
   const target = await resolveTarget(ctx, path, exec.signal)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
   const oldValue = requiredForCommand(oldStr, 'old_str', 'str_replace', false)
   const newValue = newStr ?? ''
-  const info = await statExisting(ctx, target, 'str_replace', exec)
+  const info = await statExisting(ctx, target, 'str_replace', exec, sandboxPolicy)
   if (info.type !== 'file') {
     throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  const before = await ctx.fs.readText(target, exec.signal)
+  const before = await ctx.fs.readText(target, exec.signal, sandboxPolicy)
   const offsets = matchOffsets(before, oldValue)
   const offset = offsets[0]
   if (offset === undefined) {
@@ -304,42 +300,36 @@ async function replaceInFile(
       'FS_AMBIGUOUS_EDIT',
     )
   }
-  let outcome
-  try {
-    outcome = await ctx.fs.writeText(
-      target,
-      before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
-      intent === undefined
-        ? { kind: 'replaceIfVersion', version: info.version }
-        : { kind: 'replaceIfVersion', version: intent.version },
-      exec.signal,
-      sandboxPolicy,
-    )
-  } catch (error: unknown) {
-    throw policy.mapError(error, sandboxPolicy)
-  }
+  const outcome = await ctx.fs.writeText(
+    target,
+    before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
+    intent === undefined
+      ? { kind: 'replaceIfVersion', version: info.version }
+      : { kind: 'replaceIfVersion', version: intent.version },
+    exec.signal,
+    sandboxPolicy,
+  )
   ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `The file ${target.displayPath} has been edited successfully.`
 }
 
 async function insertInFile(
   ctx: Context,
-  policy: MutationPolicy,
   path: string,
   insertLine: number | undefined,
   newStr: string | undefined,
   exec: ToolRunContext,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<string> {
   if (insertLine === undefined) throw new Error('Parameter `insert_line` is required for command: insert')
   const value = requiredForCommand(newStr, 'new_str', 'insert')
-  const sandboxPolicy = policy.resolve(exec)
   const target = await resolveTarget(ctx, path, exec.signal)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
-  const info = await statExisting(ctx, target, 'insert', exec)
+  const info = await statExisting(ctx, target, 'insert', exec, sandboxPolicy)
   if (info.type !== 'file') {
     throw new FsError(`cannot insert into "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  const before = await ctx.fs.readText(target, exec.signal)
+  const before = await ctx.fs.readText(target, exec.signal, sandboxPolicy)
   const lines = before.split('\n')
   if (!Number.isInteger(insertLine) || insertLine < 0 || insertLine > lines.length) {
     throw new Error(
@@ -354,12 +344,7 @@ async function insertInFile(
   const expected: FsWriteIntent = intent === undefined
     ? { kind: 'replaceIfVersion', version: info.version }
     : { kind: 'replaceIfVersion', version: intent.version }
-  let outcome
-  try {
-    outcome = await ctx.fs.writeText(target, after, expected, exec.signal, sandboxPolicy)
-  } catch (error: unknown) {
-    throw policy.mapError(error, sandboxPolicy)
-  }
+  const outcome = await ctx.fs.writeText(target, after, expected, exec.signal, sandboxPolicy)
   ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `The file ${target.displayPath} has been edited successfully.`
 }
@@ -418,7 +403,7 @@ function presentEditorCall(args: {
 
 /** Register the model-facing `str_replace_editor` tool. */
 function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
-  const policy = new MutationPolicy(ctx)
+  const policy = new FilePolicy(ctx)
   ctx.tools.register(defineTool({
     name: 'str_replace_editor',
     description: config.description,
@@ -461,29 +446,34 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute(args, exec) {
-      switch (args.command) {
-        case 'view':
-          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, exec)
-        case 'create':
-          return createFile(ctx, policy, args.path, args.file_text, exec)
-        case 'str_replace':
-          return replaceInFile(
-            ctx,
-            policy,
-            args.path,
-            args.old_str,
-            args.new_str,
-            exec,
-          )
-        case 'insert':
-          return insertInFile(
-            ctx,
-            policy,
-            args.path,
-            args.insert_line,
-            args.new_str,
-            exec,
-          )
+      const sandboxPolicy = policy.resolve(exec)
+      try {
+        switch (args.command) {
+          case 'view':
+            return await viewPath(ctx, args.path, args.view_range, config.maxOutputChars, exec, sandboxPolicy)
+          case 'create':
+            return await createFile(ctx, args.path, args.file_text, exec, sandboxPolicy)
+          case 'str_replace':
+            return await replaceInFile(
+              ctx,
+              args.path,
+              args.old_str,
+              args.new_str,
+              exec,
+              sandboxPolicy,
+            )
+          case 'insert':
+            return await insertInFile(
+              ctx,
+              args.path,
+              args.insert_line,
+              args.new_str,
+              exec,
+              sandboxPolicy,
+            )
+        }
+      } catch (error: unknown) {
+        throw policy.mapError(error, sandboxPolicy)
       }
     },
     presentCall: presentEditorCall,

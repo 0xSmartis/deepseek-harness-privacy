@@ -17,7 +17,7 @@ import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDen
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
 
-/** The two escalation arguments a mutating tool may carry (advertised only under a confining backend). */
+/** The two escalation arguments a filesystem tool may carry (advertised only under a confining backend). */
 export interface FsEscalationArgs {
   sandbox_permissions?: string
   justification?: string
@@ -50,17 +50,18 @@ export class FsSandboxController {
   }
 
   /**
-   * The escalation schema fields for a mutating tool's `parameters`. Call it
+   * The escalation schema fields for a filesystem tool's `parameters`. Call it
    * only under a confining backend (guard on {@link escalationModes}); the
    * enum pins the closed target vocabulary, the strict-wider check happens per
    * call at execution.
+   * @param modes - operation-specific modes that actually widen its authority.
    * @returns the two escalation parameter specs.
    */
-  schemaFields(): EscalationSchemaFields {
+  schemaFields(modes: readonly SandboxMode[] = this.escalationModes): EscalationSchemaFields {
     return {
       sandbox_permissions: {
         type: 'string',
-        enum: [...this.escalationModes],
+        enum: [...modes],
         description: 'The wider sandbox mode this file operation needs. Only valid as a one-shot retry '
           + 'of an operation the sandbox just denied; requires justification and user approval.',
       },
@@ -73,12 +74,12 @@ export class FsSandboxController {
   }
 
   /**
-   * The policy to stamp onto this mutation: an approved escalation grant (a
+   * The policy to stamp onto this operation: an approved escalation grant (a
    * strictly wider retry resolved through `ctx.approval` before anything
    * executes), else the session's standing mode. The calling session's cwd is
    * always carried as the workspace root. Validates the escalation argument
    * pairing first.
-   * @param toolName - the mutating tool's name, for the approval audit trail.
+   * @param toolName - the filesystem tool's name, for the approval audit trail.
    * @param args - the call's escalation arguments.
    * @param exec - the tool-execution context (agent, callId, signal).
    * @returns the policy to pass to the mutation, or undefined for an

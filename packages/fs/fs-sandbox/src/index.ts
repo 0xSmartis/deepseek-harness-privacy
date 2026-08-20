@@ -3,9 +3,9 @@
  * `@deepseek-ai/dsh-fs` Service Definition. It extends `LocalFileSystem` so all
  * text-storage mechanics — resolve, stat, read/stream, list, the atomic
  * write and the read-match-write edit critical section — are the local
- * implementation's, verbatim; this package adds only the per-call POLICY fence
- * on the two mutations. Reads pass through untouched: every mode permits
- * reading.
+ * implementation's. This package adds the per-call policy fence: confined
+ * modes read only the workspace and temp roots; mutation rules remain
+ * mode-specific.
  *
  * The fence is a policy check in TRUSTED code over a MODEL-CONTROLLED path,
  * NOT a kernel boundary — the operations are the seam's own (open, rename),
@@ -31,11 +31,12 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import { basename, dirname, join, resolve as resolvePath } from 'node:path'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-fs-local'
-import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsEditOutcome, FsEditRequest, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
-import { writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
+import type { FsDirEntry, FsEditOutcome, FsEditRequest, FsInfo, FsPathInfo, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { readableRoots, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { isPathUnder } from './containment.ts'
@@ -68,6 +69,97 @@ export class SandboxedFileSystem extends LocalFileSystem {
   /** The deployment default mode — the capability fact the tool layer reads to advertise escalation. */
   override get sandboxMode(): SandboxMode {
     return this.defaultMode
+  }
+
+  /**
+   * Fence a metadata read by the per-call policy.
+   * @param target - the resolved target to inspect.
+   * @param signal - aborts the metadata read.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns target metadata, or undefined when the allowed target is absent.
+   */
+  override async stat(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsInfo | undefined> {
+    return super.stat(await this.checkedReadTarget(target, sandboxPolicy), signal)
+  }
+
+  /**
+   * Fence a no-follow metadata read by the per-call policy.
+   * @param path - the path to inspect without following its final component.
+   * @param opts - optional path-resolution cwd.
+   * @param signal - aborts the metadata read.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns path metadata, or undefined when the allowed path is absent.
+   */
+  override async lstat(
+    path: string,
+    opts?: { cwd?: string },
+    signal?: AbortSignal,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<FsPathInfo | undefined> {
+    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
+    if (policy.mode === 'danger-full-access') return super.lstat(path, opts, signal)
+
+    const absolutePath = resolvePath(opts?.cwd ?? this.config.cwd, path)
+    const parent = await this.resolve(dirname(absolutePath), signal === undefined ? undefined : { signal })
+    await this.assertReadableTarget({
+      displayPath: absolutePath,
+      targetKey: FsTargetKey(join(String(parent.targetKey), basename(absolutePath))),
+    }, policy)
+    return super.lstat(absolutePath, undefined, signal)
+  }
+
+  /**
+   * Fence a whole-text read by the per-call policy.
+   * @param target - the resolved file to read.
+   * @param signal - aborts the read.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns the decoded file content.
+   */
+  override async readText(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<string> {
+    return super.readText(await this.checkedReadTarget(target, sandboxPolicy), signal)
+  }
+
+  /**
+   * Fence a streaming text read by the per-call policy.
+   * @param target - the resolved file to read.
+   * @param signal - aborts the stream.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns decoded text chunks.
+   */
+  override async streamText(
+    target: FsTarget,
+    signal?: AbortSignal,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<AsyncIterable<string>> {
+    return super.streamText(await this.checkedReadTarget(target, sandboxPolicy), signal)
+  }
+
+  /**
+   * Fence a bounded byte read by the per-call policy.
+   * @param target - the resolved file to read.
+   * @param signal - aborts the read.
+   * @param maxBytes - inclusive byte cap.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns the complete file bytes within the cap.
+   */
+  override async readBytes(
+    target: FsTarget,
+    signal: AbortSignal | undefined,
+    maxBytes: number,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<Uint8Array> {
+    return super.readBytes(await this.checkedReadTarget(target, sandboxPolicy), signal, maxBytes)
+  }
+
+  /**
+   * Fence a directory listing by the per-call policy.
+   * @param target - the resolved directory to list.
+   * @param signal - aborts the listing.
+   * @param sandboxPolicy - the per-call policy; omit to use the deployment fallback.
+   * @returns the allowed directory's direct children.
+   */
+  override async listDir(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDirEntry[]> {
+    return super.listDir(await this.checkedReadTarget(target, sandboxPolicy), signal)
   }
 
   /**
@@ -145,6 +237,23 @@ export class SandboxedFileSystem extends LocalFileSystem {
       throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
     }
     return fresh
+  }
+
+  /** Re-canonicalize a read target and return the exact allowed identity delegated to the local backend. */
+  private async checkedReadTarget(target: FsTarget, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsTarget> {
+    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
+    if (policy.mode === 'danger-full-access') return target
+    const fresh = await this.resolve(target.displayPath)
+    await this.assertReadableTarget(fresh, policy)
+    return fresh
+  }
+
+  /** Reject a freshly resolved read identity outside the policy's readable roots. */
+  private async assertReadableTarget(target: FsTarget, policy: SandboxExecutionPolicy): Promise<void> {
+    for (const root of readableRoots(policy)) {
+      if (await isPathUnder(target.targetKey, root)) return
+    }
+    throw new FsError(`cannot read "${target.displayPath}": file access denied under ${policy.mode} mode`, 'FS_SANDBOX_DENIED')
   }
 }
 

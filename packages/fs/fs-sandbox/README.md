@@ -2,23 +2,23 @@
 
 English | [中文](README.zh.md)
 
-`SandboxedFileSystem` extends [`LocalFileSystem`](../fs-local/README.md) and registers as `ctx.fs`. It inherits every text-storage mechanic verbatim (resolve, stat, read/stream, list, the atomic write, the read-match-write edit critical section) and adds only a per-call MODE fence on `writeText`/`editText`. Reads always pass through — every mode permits reading.
+`SandboxedFileSystem` extends [`LocalFileSystem`](../fs-local/README.md) and registers as `ctx.fs`. It inherits the local storage mechanics and adds a per-call file-policy fence to metadata, content, listing, write, and edit operations. `resolve` remains identity mapping. Target-based operations re-canonicalize the resulting target before checking containment; `lstat` canonicalizes the parent while preserving its no-follow final component.
 
 Its plugin config is the local backend config unchanged: `cwd` remains the relative-path resolution default, and `diffBasisMaxBytes` bounds the optional overwrite contextual-diff basis.
 
-Loading it INSTEAD OF `dsh-fs-local`, together with a [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/README.md), is the whole swap; the model-facing tools (`dsh-tool-fs`) are untouched. The tool layer resolves the calling session's mode and cwd into the SAME per-call policy bash receives, so the two families never confine to different roots.
+Loading it instead of `dsh-fs-local`, together with a [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/README.md), is the provider swap. Model-facing consumers resolve the calling session's mode and cwd into the same per-call policy used by the shell family.
 
 ## The fence
 
 The per-call policy carries the effective mode (session override or escalation grant) together with the calling session's immutable cwd root, falling back to deployment policy only for calls without one:
 
-- `read-only` — denies every mutation with the structured `FS_SANDBOX_DENIED`.
-- `workspace-write` — allows a mutation only when the target canonicalizes under a writable root: the workspace root plus the platform temp areas (`/tmp`, `os.tmpdir()`), the SAME set the Seatbelt profile grants, derived from the one [`writableRoots`](../../sandbox/README.md) function so the fs fence and the bash runner cannot drift. Canonical spellings use a lexical fast path; an identity-based ancestor fallback recognizes alias-equivalent roots such as Windows long names and 8.3 names without treating unrelated prefixes as contained. The target is re-canonicalized immediately before delegating, so an ancestor symlink swapped since the tool resolved it is caught.
+- `read-only` — reads under the workspace and platform temp roots; denies every mutation with structured `FS_SANDBOX_DENIED`.
+- `workspace-write` — reads and writes under the workspace and platform temp roots (`/tmp`, `os.tmpdir()`). [`readableRoots`](../../sandbox/sandbox/src/roots.ts) and [`writableRoots`](../../sandbox/sandbox/src/roots.ts) derive these canonical sets from one policy. Canonical spellings use a lexical fast path; an identity-based ancestor fallback recognizes alias-equivalent roots such as Windows long names and 8.3 names without treating unrelated prefixes as contained. The target is re-canonicalized immediately before delegating, so an ancestor symlink swapped since the tool resolved it is caught.
 - `danger-full-access` — delegates unfenced.
 
 ## Threat model: a policy fence, not a kernel boundary
 
-The fence is a check in TRUSTED code over a MODEL-CONTROLLED path — the operations are the seam's own (open, rename), only the target path is untrusted, so canonicalize-then-contain is the complete answer to this surface. This mirrors the `code-runtime` stance: containment, not a security boundary. Kernel-grade isolation of untrusted CODE stays `ctx.shell`'s job ([`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md)). The residual TOCTOU (an ancestor symlink swapped between the containment re-check and the syscall) is narrowed by re-canonicalizing immediately before the write and is accepted for this threat model; a kernel-tight boundary needs `openat2`-class primitives not worth their portability cost here.
+The fence is a check in trusted code over a model-controlled path: the operations are the seam's own (`open`, `rename`), while only the target path is untrusted. Kernel-grade isolation of untrusted code stays `ctx.shell`'s job ([`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md)). Re-canonicalizing immediately before delegation narrows the remaining race between the containment check and the filesystem operation; a kernel-tight boundary needs platform-specific `openat2`-class primitives.
 
 A denial is a structured `FsError` (`FS_SANDBOX_DENIED`, carrying the effective mode) — no stderr text inference (unlike bash's kernel denials), because an in-process fence knows exactly what it refused. The model-facing `[sandbox: file access denied under <mode> mode]` marker and the one-approved-wider retry live in the tool layer (`dsh-tool-fs`), exactly as bash's do. See [the cross-family fs sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md).
 
@@ -40,6 +40,7 @@ A standing-policy change appends an owner-rendered superseding runtime-context s
 
 ## Known Limitations and Deferred Work
 
-- **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so the residual resolve-to-syscall TOCTOU is narrowed (by the in-place re-canonicalization) but not eliminated; adversarial host processes are out of scope. Kernel-grade isolation of untrusted code stays `ctx.shell`'s.
-- **Fence-vs-runner parity is derived from one owner** — the writable set comes from `writableRoots`, shared with the Seatbelt profile; a runner profile that defines its writable set elsewhere would drift.
+- **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so in-place re-canonicalization narrows but does not eliminate the resolve-to-operation race; adversarial host processes are out of scope.
+- **Process reads remain separate** — this provider confines trusted `ctx.fs` operations; shell commands still require OS-backend read confinement.
+- **Temporary roots are platform-wide** — confined calls may read and, under `workspace-write`, write the host temp areas. Per-session private temporary roots remain separate work.
 - **Requires `ctx.sandboxPolicy`** — tools use it to resolve each session policy and the backend uses it for agentless-call fallbacks; the backend does not confine without it composed.

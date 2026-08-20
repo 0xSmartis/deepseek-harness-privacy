@@ -1,5 +1,5 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -64,9 +64,9 @@ function call(ctx: Context, owner: Agent | undefined, args: unknown) {
 
 async function setup(
   config: ToolStrReplaceEditor.Config = {},
-  options: { fsPolicy?: boolean; sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' } = {},
+  options: { fsPolicy?: boolean; sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'; rootParent?: string } = {},
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-tool-str-replace-editor-'))
+  const root = await mkdtemp(join(options.rootParent ?? tmpdir(), 'dsh-tool-str-replace-editor-'))
   roots.push(root)
   const ctx = new Context()
   contexts.push(ctx)
@@ -480,7 +480,7 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(created, 'utf8')).toBe('new')
   })
 
-  it('passes the session sandbox policy to every mutation', async () => {
+  it('passes the session sandbox policy to every operation', async () => {
     const { ctx, root, owner } = await setup({}, { sandboxMode: 'read-only' })
     const path = join(root, 'blocked.txt')
     const result = await call(ctx, owner, {
@@ -497,6 +497,19 @@ describe('tool-str-replace-editor', () => {
       file_text: 'blocked',
     })
     expect(ownerless.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
+  })
+
+  it('denies a view outside the session workspace and maps the structured refusal', async () => {
+    const { ctx, owner } = await setup({}, { sandboxMode: 'workspace-write', rootParent: homedir() })
+    const outside = await mkdtemp(join(homedir(), '.dsh-tool-str-replace-editor-outside-'))
+    roots.push(outside)
+    const privatePath = join(outside, 'private.txt')
+    await writeFile(privatePath, 'secret-value')
+
+    const result = await call(ctx, owner, { command: 'view', path: privatePath })
+    expect(result.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
+    expect(text(result)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(text(result)).not.toContain('secret-value')
   })
 
   it('preserves tabs outside the edited region', async () => {

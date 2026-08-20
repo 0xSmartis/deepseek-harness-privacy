@@ -1,7 +1,6 @@
 /**
- * Tests for the writable-root derivation: the mode's meaning as a canonical
- * allow-list. Pinned here so the fs fence and the Seatbelt profile — both
- * deriving from `writableRoots` — cannot drift.
+ * Tests for filesystem-root derivation: each mode's canonical read and write
+ * allow-lists. Pinned here so enforcing providers cannot drift.
  */
 
 import { realpathSync } from 'node:fs'
@@ -9,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { canonicalPath, readableRoots, writableRoots } from '@deepseek-ai/dsh-sandbox'
 
 describe('canonicalPath', () => {
   it('resolves symlinks (an existing path realpaths)', () => {
@@ -35,5 +34,20 @@ describe('writableRoots', () => {
     expect(roots).toContain(realpathSync.native(tmpdir()))
     // Deduplicated after canonicalization (/tmp and os.tmpdir() may coincide).
     expect(new Set(roots).size).toBe(roots.length)
+  })
+})
+
+describe('readableRoots', () => {
+  it.each(['read-only', 'workspace-write'] as const)('%s grants the workspace root plus platform temp areas', (mode) => {
+    const ws = mkdtempSync(join(tmpdir(), 'dsh-readable-'))
+    const roots = readableRoots({ mode, networkMode: 'deny-all', workspaceRoot: ws })
+    expect(roots).toContain(realpathSync.native(ws))
+    expect(roots).toContain(canonicalPath('/tmp'))
+    expect(roots).toContain(realpathSync.native(tmpdir()))
+    expect(new Set(roots).size).toBe(roots.length)
+  })
+
+  it('danger-full-access bypasses read confinement', () => {
+    expect(readableRoots({ mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: process.cwd() })).toEqual([])
   })
 })

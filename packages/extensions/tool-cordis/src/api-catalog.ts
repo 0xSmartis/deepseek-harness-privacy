@@ -663,7 +663,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
-    description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.',
+    description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional sandbox policies let an enforcing provider fence individual calls without changing the unguarded provider contract.',
     methods: [
       {
         signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
@@ -690,39 +690,39 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'true when `child` is `parent` or a descendant of it.',
       },
       {
-        signature: 'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
+        signature: 'abstract stat(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsInfo | undefined>',
         description: 'Return target metadata, or `undefined` when the target does not exist.',
-        parameters: [{ name: 'target', description: 'the resolved target to stat.' }, { name: 'signal', description: 'aborts the metadata round-trip.' }],
+        parameters: [{ name: 'target', description: 'the resolved target to stat.' }, { name: 'signal', description: 'aborts the metadata round-trip.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'metadata only, never content; undefined for an absent target.',
       },
       {
-        signature: 'abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>',
+        signature: 'abstract lstat( path: string, opts?: { cwd?: string }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsPathInfo | undefined>',
         description: 'Return path metadata without following the final path component when it is a symbolic link. This is intentionally path-shaped, not target-shaped: resolve follows symlinks to produce the stable identity used by normal reads/writes, while `lstat` lets a consumer reject the path itself before that follow happens.\n\n`opts.cwd` follows resolve\'s cwd rules. `undefined` means the path is absent.',
-        parameters: [{ name: 'path', description: 'the path to inspect; relative paths resolve against `opts.cwd`.' }, { name: 'opts', description: '`cwd` overrides the backend\'s default base for relative paths.' }, { name: 'signal', description: 'aborts the metadata round-trip.' }],
+        parameters: [{ name: 'path', description: 'the path to inspect; relative paths resolve against `opts.cwd`.' }, { name: 'opts', description: '`cwd` overrides the backend\'s default base for relative paths.' }, { name: 'signal', description: 'aborts the metadata round-trip.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'metadata only, never content; undefined for an absent path.',
       },
       {
-        signature: 'abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>',
+        signature: 'abstract readText(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<string>',
         description: 'Read the whole regular text file as a single decoded string.',
-        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }],
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'the full decoded UTF-8 content.',
       },
       {
-        signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
+        signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<AsyncIterable<string>>',
         description: 'Stream the whole regular text file as decoded text chunks (same text semantics as readText, for large files). The backend owns cross-chunk UTF-8 decoding and binary rejection so the policy layer never touches raw bytes.',
-        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the stream, including between chunks.' }],
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the stream, including between chunks.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'the chunk iterable, decoded and validated like {@link readText}.',
       },
       {
-        signature: 'abstract readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>',
+        signature: 'abstract readBytes( target: FsTarget, signal: AbortSignal | undefined, maxBytes: number, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<Uint8Array>',
         description: 'Read the whole regular file as raw bytes with no decoding or binary rejection. The bound lives at this seam so a backend can never buffer an unbounded file: a target known or discovered to exceed `maxBytes` fails with `FS_TOO_LARGE` instead of returning a truncated result.',
-        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }, { name: 'maxBytes', description: 'inclusive byte cap on the complete content.' }],
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'signal', description: 'aborts the read.' }, { name: 'maxBytes', description: 'inclusive byte cap on the complete content.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'the full raw content, at most `maxBytes` long.',
       },
       {
-        signature: 'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
+        signature: 'abstract listDir(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDirEntry[]>',
         description: 'List direct children of a directory in stable name order. Returns resolved child targets plus cheap metadata only; never reads file contents.',
-        parameters: [{ name: 'target', description: 'the resolved directory target.' }, { name: 'signal', description: 'aborts the listing.' }],
+        parameters: [{ name: 'target', description: 'the resolved directory target.' }, { name: 'signal', description: 'aborts the listing.' }, { name: 'sandboxPolicy', description: 'the per-call filesystem policy; a sandboxing backend fences the read by it, while a bare backend ignores it.' }],
         returns: 'one entry per direct child, in stable name order.',
       },
       {

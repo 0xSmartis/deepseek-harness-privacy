@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { buildWindow, formatReadOutput, langFromPath, readMetaFromMeta } from './read-render.ts'
 import { resolveRegularReadTarget } from './read-target.ts'
+import type { FsSandboxController } from './sandbox.ts'
 
 /** Default and maximum number of lines returned by one `read` call (the `readLimit` config). */
 export const READ_LIMIT = 2000
@@ -40,6 +41,15 @@ interface ReadInput {
   limit: number
 }
 
+/** Read arguments plus the approval fields advertised by a confining filesystem. */
+interface ReadToolArgs {
+  file_path: string
+  offset?: number
+  limit?: number
+  sandbox_permissions?: string
+  justification?: string
+}
+
 function parsePositiveInteger(value: number, name: string): number {
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
     throw new Error(`${name} must be a positive integer`)
@@ -65,8 +75,9 @@ export function parseReadArgs(args: { file_path: string; offset?: number; limit?
  * Register the `read` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
  * @param caps - the deployment's resolved read caps (plugin config after defaulting).
+ * @param sandbox - the shared sandbox policy and escalation controller.
  */
-export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
+export function applyReadTool(ctx: Context, caps: ReadToolCaps, sandbox: FsSandboxController): void {
   ctx.systemPrompt.section({
     name: 'tool:read',
     order: 100,
@@ -80,6 +91,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       file_path: { type: 'string', required: true, description: 'Path to read, resolved by the filesystem backend.' },
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields(['danger-full-access']) : {},
     },
     output: {
       schema: {
@@ -133,34 +145,39 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     },
     // Observation races fail closed because guarded mutations re-check the version in-lock.
     isConcurrencySafe: () => true,
-    async execute(args, exec) {
+    async execute(args: ReadToolArgs, exec) {
       const input = parseReadArgs(args, caps.limit)
-      // One stat: absence observation OR type check + size routing + present version.
-      // A concurrent write can only make a later guarded mutation fail stale and require reread.
-      const { target, info } = await resolveRegularReadTarget(ctx, exec, input.filePath)
+      const sandboxPolicy = await sandbox.resolvePolicy('read', args, exec)
+      try {
+        // One stat: absence observation OR type check + size routing + present version.
+        // A concurrent write can only make a later guarded mutation fail stale and require reread.
+        const { target, info } = await resolveRegularReadTarget(ctx, exec, input.filePath, sandboxPolicy)
 
-      // Stream when the file is large OR size is unknown, so a size-less backend
-      // never buffers an arbitrarily large file.
-      const chunks = info.size === undefined || info.size >= caps.streamMinSize
-        ? await ctx.fs.streamText(target, exec.signal)
-        : [await ctx.fs.readText(target, exec.signal)]
-      const window = await buildWindow(
-        chunks,
-        { offset: input.offset, limit: input.limit, maxLineLength: caps.maxLineLength, maxBytes: caps.maxBytes },
-        target.displayPath,
-      )
+        // Stream when the file is large OR size is unknown, so a size-less backend
+        // never buffers an arbitrarily large file.
+        const chunks = info.size === undefined || info.size >= caps.streamMinSize
+          ? await ctx.fs.streamText(target, exec.signal, sandboxPolicy)
+          : [await ctx.fs.readText(target, exec.signal, sandboxPolicy)]
+        const window = await buildWindow(
+          chunks,
+          { offset: input.offset, limit: input.limit, maxLineLength: caps.maxLineLength, maxBytes: caps.maxBytes },
+          target.displayPath,
+        )
 
-      const outcome = {
-        path: target.displayPath,
-        offset: input.offset,
-        lines: window.lines,
-        totalLines: window.totalLines,
+        const outcome = {
+          path: target.displayPath,
+          offset: input.offset,
+          lines: window.lines,
+          totalLines: window.totalLines,
+        }
+        // Record the present observation (a no-op when no policy plugin listens). The
+        // read already succeeded; an fs/observed listener is contractually a
+        // synchronous, side-effect-only recorder.
+        ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
+        return outcome
+      } catch (error: unknown) {
+        throw sandbox.mapError(error, sandboxPolicy)
       }
-      // Record the present observation (a no-op when no policy plugin listens). The
-      // read already succeeded; an fs/observed listener is contractually a
-      // synchronous, side-effect-only recorder.
-      ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
-      return outcome
     },
     // Result-time display: a `read` card carrying the structured line window a
     // capable UI renders as a line-numbered, syntax-highlighted view. The

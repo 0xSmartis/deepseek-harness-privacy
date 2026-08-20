@@ -24,6 +24,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { applyReadImageTool } from '../src/read-image.ts'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
@@ -759,12 +760,28 @@ describe('read caps are plugin config', () => {
   })
 })
 
-describe('sandbox escalation API (write/edit)', () => {
+describe('sandbox escalation API (read/write/edit)', () => {
   /** A confining fake `ctx.fs`: reports a default mode, records each per-call policy, and can arm a sandbox denial. */
   class SandboxingFakeFs extends FakeFs {
     stamped: (SandboxExecutionPolicy | undefined)[] = []
     override get sandboxMode(): SandboxMode {
       return 'workspace-write'
+    }
+    override async stat(
+      target: FsTarget,
+      _signal?: AbortSignal,
+      sandboxPolicy?: SandboxExecutionPolicy,
+    ): Promise<FsInfo | undefined> {
+      this.stamped.push(sandboxPolicy)
+      return super.stat(target)
+    }
+    override async readText(
+      target: FsTarget,
+      _signal?: AbortSignal,
+      sandboxPolicy?: SandboxExecutionPolicy,
+    ): Promise<string> {
+      this.stamped.push(sandboxPolicy)
+      return super.readText(target)
     }
     override async writeText(
       target: FsTarget,
@@ -812,7 +829,7 @@ describe('sandbox escalation API (write/edit)', () => {
     }
   }
 
-  function fsSchema(ctx: Context, name: 'write' | 'edit') {
+  function fsSchema(ctx: Context, name: 'read' | 'write' | 'edit') {
     const schema = ctx.tools.schemas().find(s => s.name === name)
     if (!schema) throw new Error(`${name} tool not registered`)
     return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
@@ -829,26 +846,41 @@ describe('sandbox escalation API (write/edit)', () => {
   it('advertises no escalation fields under a non-confining backend', async () => {
     const { ctx } = await setup()
     expect(ctx.fs.sandboxMode).toBeUndefined()
-    for (const name of ['write', 'edit'] as const) {
+    for (const name of ['read', 'write', 'edit'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
       expect(props['sandbox_permissions']).toBeUndefined()
       expect(props['justification']).toBeUndefined()
     }
   })
 
-  it('advertises the closed target vocabulary on write and edit under a confining backend', async () => {
+  it('advertises only the mode that widens reads and the full mutation target vocabulary', async () => {
     const { ctx } = await setupConfining()
+    expect(fsSchema(ctx, 'read').parameters.properties['sandbox_permissions']?.enum).toEqual(['danger-full-access'])
     for (const name of ['write', 'edit'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
       expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
       expect(props['justification']).toBeDefined()
     }
+
+    applyReadImageTool(ctx)
+    const readImage = ctx.tools.schemas().find(schema => schema.name === 'read_image') as
+      | { parameters: { properties: Record<string, { enum?: string[] }> } }
+      | undefined
+    expect(readImage?.parameters.properties['sandbox_permissions']?.enum).toEqual(['danger-full-access'])
   })
 
   it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
     expect(fs.stamped).toEqual([{ mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: resolve('/session-project') }])
+  })
+
+  it('a plain read stamps the default mode onto metadata and content reads', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.files.set('key:a.txt', 'x')
+    await call(ctx, 'read', { file_path: 'a.txt' }, escalationAgent())
+    const expected = { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: resolve('/session-project') }
+    expect(fs.stamped).toEqual([expected, expected])
   })
 
   it('a standing session override folds onto the stamp', async () => {
@@ -862,6 +894,15 @@ describe('sandbox escalation API (write/edit)', () => {
     fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
     expect(result.isError).toBe(true)
+    expect(text(result)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(text(result)).toContain('retry this exact operation once with sandbox_permissions')
+  })
+
+  it('a denied read maps to the shared marker plus the escalation hint', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+    const result = await call(ctx, 'read', { file_path: 'outside.txt' }, escalationAgent())
+    expect(result.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
     expect(text(result)).toContain('[sandbox: file access denied under workspace-write mode]')
     expect(text(result)).toContain('retry this exact operation once with sandbox_permissions')
   })
@@ -888,6 +929,19 @@ describe('sandbox escalation API (write/edit)', () => {
       signal: new AbortController().signal,
     })
     expect(fs.stamped).toEqual([{ mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: resolve('/session-project') }])
+  })
+
+  it('an approved outside-root read stamps danger-full-access onto metadata and content reads', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    fs.files.set('key:outside.txt', 'x')
+    ctx.on('approval/request', () => Promise.resolve('allowed-once' as const))
+    await call(ctx, 'read', {
+      file_path: 'outside.txt',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'the test needs the outside file',
+    }, escalationAgent())
+    const expected = { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: resolve('/session-project') }
+    expect(fs.stamped).toEqual([expected, expected])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

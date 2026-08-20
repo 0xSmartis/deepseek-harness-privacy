@@ -124,6 +124,10 @@ interface ToolArgsMap {
     offset?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
+    /** The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval. */
+    sandbox_permissions?: "danger-full-access";
+    /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
+    justification?: string;
   } & Record<string, JsonValue>;
   /** Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. This call returns no answer from the subagent — only confirmation that the message was delivered — so use it to give it more work. A failure means the message was NOT delivered. */
   send_message: {

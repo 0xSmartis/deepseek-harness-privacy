@@ -237,6 +237,17 @@
           "limit": {
             "type": "number",
             "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval.",
+            "enum": [
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
         "required": [
@@ -253,6 +264,17 @@
           "file_path": {
             "type": "string",
             "description": "Path to the image file, resolved by the filesystem backend."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The wider sandbox mode this file operation needs. Only valid as a one-shot retry of an operation the sandbox just denied; requires justification and user approval.",
+            "enum": [
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access."
           }
         },
         "required": [

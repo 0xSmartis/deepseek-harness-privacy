@@ -6,6 +6,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsInfo, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { sessionResolveOptions } from './session-cwd.ts'
 
@@ -14,15 +15,17 @@ import { sessionResolveOptions } from './session-cwd.ts'
  * @param ctx - the plugin context providing filesystem resolution and observation events.
  * @param exec - the current tool execution, including session cwd and cancellation.
  * @param requestedPath - the raw path supplied to the tool.
+ * @param sandboxPolicy - the per-call policy passed to the enforcing provider.
  * @returns the resolved target and its single stat result.
  */
 export async function resolveRegularReadTarget(
   ctx: Context,
   exec: ToolExecution,
   requestedPath: string,
+  sandboxPolicy?: SandboxExecutionPolicy,
 ): Promise<{ target: FsTarget; info: FsInfo }> {
   const target = await ctx.fs.resolve(requestedPath, sessionResolveOptions(exec, requestedPath))
-  const info = await ctx.fs.stat(target, exec.signal)
+  const info = await ctx.fs.stat(target, exec.signal, sandboxPolicy)
   if (info === undefined) {
     ctx.emit('fs/observed', target, { kind: 'absent' }, exec)
     throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')

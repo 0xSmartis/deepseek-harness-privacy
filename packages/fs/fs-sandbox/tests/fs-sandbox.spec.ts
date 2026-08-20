@@ -1,11 +1,8 @@
 /**
  * Tests for the sandbox-enforcing filesystem backend: the per-call policy fence
- * on write/edit (read-only denies, workspace-write contains, danger-full-access
- * passes through), reads always passing through, the capability fact, and the
- * containment matrix — `..` traversal, absolute paths outside, and symlink
- * escapes (a symlinked directory inside the workspace pointing out, and a new
- * file created under one). The fence is exercised on a real filesystem: a
- * denied write leaves no file on disk.
+ * on reads, writes, and edits; the capability fact; and the containment matrix
+ * for traversal, absolute paths, and symlink escapes. The fence is exercised
+ * on a real filesystem so denied operations cannot be mistaken for mocks.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -80,10 +77,49 @@ describe('read-only', () => {
     expect(await readFile(path, 'utf8')).toBe('original')
   })
 
-  it('allows reads (every mode permits reading)', async () => {
+  it('allows reads inside the workspace', async () => {
     const path = join(workspace, 'readable.txt')
     await writeFile(path, 'hello')
+    await expect(fs.lstat(path, undefined, new AbortController().signal)).resolves.toMatchObject({ type: 'file' })
     expect(await fs.readText(await target(path))).toBe('hello')
+  })
+
+  it('denies every read primitive outside the readable roots', async () => {
+    const file = join(outside, 'private.txt')
+    await writeFile(file, 'private')
+    const outsideFile = await target(file)
+    const outsideDirectory = await target(outside)
+
+    await expect(fs.stat(outsideFile)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await expect(fs.lstat(file)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await expect(fs.readText(outsideFile)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await expect(fs.streamText(outsideFile)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await expect(fs.readBytes(outsideFile, undefined, 1024)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await expect(fs.listDir(outsideDirectory)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+  })
+
+  it('denies a read through a workspace symlink to an outside file', async () => {
+    const privatePath = join(outside, 'private.txt')
+    await writeFile(privatePath, 'private')
+    const link = join(workspace, 'link.txt')
+    await symlink(privatePath, link)
+    await expect(fs.lstat(link)).resolves.toMatchObject({ type: 'symlink' })
+    await expect(fs.readText(await target(link))).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+  })
+
+  it('denies no-follow metadata for an outside symlink even when its target is readable', async () => {
+    const readablePath = join(workspace, 'readable.txt')
+    await writeFile(readablePath, 'inside')
+    const link = join(outside, 'link.txt')
+    await symlink(readablePath, link)
+    await expect(fs.lstat(link)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+  })
+
+  it('reads the freshly checked identity instead of a stale outside target key', async () => {
+    const insidePath = join(workspace, 'landed.txt')
+    await writeFile(insidePath, 'inside')
+    const staleTarget: FsTarget = { displayPath: insidePath, targetKey: FsTargetKey(join(outside, 'private.txt')) }
+    expect(await fs.readText(staleTarget)).toBe('inside')
   })
 })
 
@@ -192,6 +228,13 @@ describe('danger-full-access', () => {
     await fs.writeText(await target(path), 'free')
     expect(await readFile(path, 'utf8')).toBe('free')
   })
+
+  it('reads anywhere, unfenced', async () => {
+    const path = join(outside, 'private.txt')
+    await writeFile(path, 'private')
+    await expect(fs.lstat(path)).resolves.toMatchObject({ type: 'file' })
+    expect(await fs.readText(await target(path))).toBe('private')
+  })
 })
 
 describe('the per-call policy override (escalation)', () => {
@@ -211,6 +254,16 @@ describe('the per-call policy override (escalation)', () => {
     const path = join(outside, 'granted-full.txt')
     await fs.writeText(await target(path), 'full', undefined, undefined, { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: workspace })
     expect(await readFile(path, 'utf8')).toBe('full')
+  })
+
+  it('a danger-full-access stamp permits one outside read without changing the default', async () => {
+    await boot('read-only')
+    const path = join(outside, 'granted-read.txt')
+    await writeFile(path, 'granted')
+    const outsideTarget = await target(path)
+    const grant = { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: workspace } as const
+    expect(await fs.readText(outsideTarget, undefined, grant)).toBe('granted')
+    await expect(fs.readText(outsideTarget)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
   })
 })
 

@@ -2,7 +2,7 @@
 
 English | [中文](filesystem.zh.md)
 
-The optional filesystem capability has four parts: [dsh-fs](../../packages/fs/fs) owns `ctx.fs` and atomic text operations with optional guards, [dsh-fs-local](../../packages/fs/fs-local) implements local disk, [dsh-fs-observation-policy](../../packages/fs/fs-observation-policy) records observed presence or absence and adds freshness rules through events rather than a service, and [dsh-tool-fs](../../packages/fs/tool-fs) directly executes model-facing read/write/edit calls and renders windows. It is outside the agent-loop spine; alternate backends do not change policy or tool schemas.
+The optional filesystem capability has four parts: [dsh-fs](../../packages/fs/fs) owns `ctx.fs` and atomic text operations with optional guards, [dsh-fs-local](../../packages/fs/fs-local) implements local disk, [dsh-fs-observation-policy](../../packages/fs/fs-observation-policy) records observed presence or absence and adds freshness rules through events rather than a service, and [dsh-tool-fs](../../packages/fs/tool-fs) directly executes model-facing read/write/edit calls and renders windows. It is outside the agent-loop spine. [dsh-fs-sandbox](../../packages/fs/fs-sandbox) can replace the local provider and enforce a per-call `SandboxExecutionPolicy` on reads and mutations without changing observation policy.
 
 `dsh-fs-observation-policy` is optional. Without it, the `FileSystem` Service Definition, a provider, and the `dsh-tool-fs` Consumer form the complete, unconstrained filesystem seam: `write` unconditionally creates or overwrites, and `edit` unconditionally replaces literal text. The policy plugin changes these operations by deciding the `fs/*` waterfalls. Removing it does not break the tool because the tool calls `ctx.fs` and dispatches events; it does not call policy methods. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-fs-observation-policy` so the default behavior is read-before-write/edit.
 
@@ -267,7 +267,7 @@ type FsErrorCode =
   | 'FS_ABORTED'
 ```
 
-`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a POLICY refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) — the mode fence denied a write/edit — distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_NOT_FOUND` also represents an edit rejected from confirmed absence. `FS_STALE_VERSION` means the backend version no longer matches the observed one (or the provider itself receives an edit for a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
+`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_SANDBOX_DENIED` is a policy refusal from a sandbox-enforcing backend (`dsh-fs-sandbox`) when a read or mutation falls outside the mode's roots; it is distinct from `FS_PERMISSION_DENIED` (the host kernel refusing). `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_NOT_FOUND` also represents an edit rejected from confirmed absence. `FS_STALE_VERSION` means the backend version no longer matches the observed one (or the provider itself receives an edit for a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
 
 ## No timeouts on file IO
 
@@ -289,7 +289,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
+Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional sandbox policies let an enforcing provider fence individual calls without changing the unguarded provider contract.
 
 ```ts cordis-catalog
 /**
@@ -335,9 +335,11 @@ abstract contains(parent: FsTarget, child: FsTarget): boolean
  * Return target metadata, or `undefined` when the target does not exist.
  * @param target - the resolved target to stat.
  * @param signal - aborts the metadata round-trip.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns metadata only, never content; undefined for an absent target.
  */
-abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract stat(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsInfo | undefined>
 
 /**
  * Return path metadata without following the final path component when it is a
@@ -351,17 +353,21 @@ abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefine
  * @param path - the path to inspect; relative paths resolve against `opts.cwd`.
  * @param opts - `cwd` overrides the backend's default base for relative paths.
  * @param signal - aborts the metadata round-trip.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns metadata only, never content; undefined for an absent path.
  */
-abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
+abstract lstat( path: string, opts?: { cwd?: string }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsPathInfo | undefined>
 
 /**
  * Read the whole regular text file as a single decoded string.
  * @param target - the resolved target to read.
  * @param signal - aborts the read.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns the full decoded UTF-8 content.
  */
-abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract readText(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<string>
 
 /**
  * Stream the whole regular text file as decoded text chunks (same text
@@ -370,9 +376,11 @@ abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
  * touches raw bytes.
  * @param target - the resolved target to read.
  * @param signal - aborts the stream, including between chunks.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns the chunk iterable, decoded and validated like {@link readText}.
  */
-abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract streamText(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<AsyncIterable<string>>
 
 /**
  * Read the whole regular file as raw bytes with no decoding or binary
@@ -382,18 +390,22 @@ abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterab
  * @param target - the resolved target to read.
  * @param signal - aborts the read.
  * @param maxBytes - inclusive byte cap on the complete content.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns the full raw content, at most `maxBytes` long.
  */
-abstract readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>
+abstract readBytes( target: FsTarget, signal: AbortSignal | undefined, maxBytes: number, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<Uint8Array>
 
 /**
  * List direct children of a directory in stable name order. Returns resolved
  * child targets plus cheap metadata only; never reads file contents.
  * @param target - the resolved directory target.
  * @param signal - aborts the listing.
+ * @param sandboxPolicy - the per-call filesystem policy; a sandboxing backend
+ *   fences the read by it, while a bare backend ignores it.
  * @returns one entry per direct child, in stable name order.
  */
-abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
+abstract listDir(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsDirEntry[]>
 
 /**
  * Atomically create or replace UTF-8 text. `expected` guards intent and
@@ -427,7 +439,7 @@ abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: 
 
 Types: [SandboxExecutionPolicy](sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:86`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:87`](../../packages/fs/fs/src/index.ts)
 
 <a id="fs-events"></a>
 
