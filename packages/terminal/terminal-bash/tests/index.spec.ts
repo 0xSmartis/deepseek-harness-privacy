@@ -25,7 +25,13 @@ import type {
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    return { argv: [], enforcement: 'full', networkEnforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+  }
+}
+
+class PassthroughSandbox extends SandboxProvider {
+  confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+    return { argv: [...argv], enforcement: 'full', networkEnforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -34,7 +40,7 @@ class RecordingSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', networkEnforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -127,6 +133,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('closes failed startup and aggregates cleanup failure', async () => {
     const ctx = new Context()
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
     const spawnTerminal = async (): Promise<SubprocessTerminalHandle> => terminalHandle()
 
@@ -152,6 +159,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('starts startup rollback when cancellation wins a stalled initialization', async () => {
     const ctx = new Context()
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
     const initialization = Promise.withResolvers<undefined>()
     const initializationStarted = Promise.withResolvers<undefined>()
@@ -219,7 +227,7 @@ describe('BashTerminalBackend startup rollback', () => {
     expect(initialized).toHaveBeenCalledWith(undefined)
     expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
       argv: ['/bin/bash', '-i'],
-      policy: { mode: 'workspace-write', sessionId: 'agent', workspaceRoot: resolve('/workspace') },
+      policy: { mode: 'workspace-write', networkMode: 'deny-all', sessionId: 'agent', workspaceRoot: resolve('/workspace') },
     }])
   })
 
@@ -251,7 +259,7 @@ describe('BashTerminalBackend startup rollback', () => {
     })
     expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
       argv: ['/bin/bash', '-i'],
-      policy: { mode: 'workspace-write', sessionId: 'agent', workspaceRoot: resolve('/session-workspace') },
+      policy: { mode: 'workspace-write', networkMode: 'deny-all', sessionId: 'agent', workspaceRoot: resolve('/session-workspace') },
     }])
   })
 
@@ -265,13 +273,31 @@ describe('BashTerminalBackend startup rollback', () => {
       () => stubLocalSession(),
     )
     await expect(confined.spawn(spec(agent(confinedCtx)))).rejects.toThrow(
-      'sandbox mode "workspace-write" requires a ctx.sandbox provider in the execution world',
+      'terminal-bash: sandbox policy requires a ctx.sandbox provider in the execution world',
     )
+  })
+
+  it('rejects a backend that cannot fully enforce child-network denial before spawning', async () => {
+    class PartialNetworkSandbox extends SandboxProvider {
+      confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+        return { argv: [...argv], enforcement: 'full', networkEnforcement: 'partial', denialSignatures: [], runnerFailureRules: [] }
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(PartialNetworkSandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    const spawnTerminal = vi.fn<() => Promise<SubprocessTerminalHandle>>()
+    const backend = new BashTerminalBackend(ctx, config(), spawnTerminal)
+
+    await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow(
+      'terminal-bash: the selected sandbox backend cannot fully enforce child-network denial',
+    )
+    expect(spawnTerminal).not.toHaveBeenCalled()
   })
 
   it('forwards terminal allocation cancellation directly', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
 
     const publishedController = new AbortController()
@@ -315,7 +341,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('composes the default local session around a spawned terminal', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     const output = new PassThrough()
     const outcome = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
@@ -344,7 +370,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('bootstraps a pwsh dialect through the prompt function and scrubs bash-only env', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     let spawned: SubprocessTerminalSpawnSpec | undefined
     let sent: TerminalSendRequest | undefined
@@ -381,7 +407,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('keeps waiting for the marker prompt when the first send settles on silence', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     const sends: TerminalSendRequest[] = []
     const session = {
@@ -415,7 +441,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('rejects a pwsh bootstrap whose shell exits or times out', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     const sessionFor = (waitReason: TerminalWaitReason): LocalPtySession => ({
       startSend: () => ({
@@ -437,7 +463,7 @@ describe('BashTerminalBackend startup rollback', () => {
 
   it('forwards the spawn signal into the pwsh bootstrap sends', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     const sends: TerminalSendRequest[] = []
     const session = {
@@ -496,7 +522,7 @@ describe('terminal-bash plugin shape', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TerminalSessionService)
-    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(PassthroughSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
     await ctx.plugin(StubSubprocessRuntime)
     await ctx.plugin(ptyLocal, config())

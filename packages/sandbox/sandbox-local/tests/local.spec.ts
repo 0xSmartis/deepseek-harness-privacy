@@ -21,8 +21,8 @@ import {
 import type { Config } from '@deepseek-ai/dsh-sandbox-local'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from '../src/profiles.ts'
 
-const RO: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
-const WW: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws' }
+const RO: SandboxPolicy = { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/ws' }
+const WW: SandboxPolicy = { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: '/ws' }
 
 async function setup(config: Config = {}, internals: LocalSandboxProvider['internals'] = {}) {
   const ctx = new Context()
@@ -59,28 +59,28 @@ function fakeSeatbeltExec(status: number): string {
 }
 
 /** The seatbelt read-only profile — every seatbelt profile starts with these forms. */
-const SEATBELT_RO_PROFILE = '(version 1) (allow default) (deny file-write*) (allow file-write* (literal "/dev/null"))'
+const SEATBELT_RO_PROFILE = '(version 1) (allow default) (deny network-outbound (remote ip)) (deny network-bind (local ip)) (deny network-inbound (local ip)) (deny file-write*) (allow file-write* (literal "/dev/null"))'
 
 describe('profile dialects', () => {
   it('bwrap read-only: whole tree read-only with fresh /dev and /proc, no writable mounts', () => {
-    expect(bwrapProfileArgs(RO)).toEqual(['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent'])
+    expect(bwrapProfileArgs(RO)).toEqual(['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--unshare-net'])
   })
 
   it('bwrap workspace-write: adds an ephemeral /tmp and rebinds the workspace root', () => {
     expect(bwrapProfileArgs(WW)).toEqual([
       '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent',
-      '--tmpfs', '/tmp', '--bind', '/ws', '/ws',
+      '--unshare-net', '--tmpfs', '/tmp', '--bind', '/ws', '/ws',
     ])
   })
 
   it('landlock read-only: readable tree plus a writable /dev/null, nothing else', () => {
     // /dev/null specifically, NOT /dev: a whole-/dev grant would let confined
     // commands write real host paths beneath it (/dev/shm) under read-only.
-    expect(landlockProfileArgs(RO)).toEqual(['--ro', '/', '--rw', '/dev/null'])
+    expect(landlockProfileArgs(RO)).toEqual(['--ro', '/', '--rw', '/dev/null', '--deny-network'])
   })
 
   it('landlock workspace-write: adds the host /tmp and the workspace root', () => {
-    expect(landlockProfileArgs(WW)).toEqual(['--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws'])
+    expect(landlockProfileArgs(WW)).toEqual(['--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws', '--deny-network'])
   })
 
   it('seatbelt read-only: allow-default with every file write denied except the /dev/null literal', () => {
@@ -99,7 +99,7 @@ describe('profile dialects', () => {
   })
 
   it('seatbelt workspace-write dedups a workspace root that already IS the temp dir', () => {
-    const profile = seatbeltProfileArgs({ mode: 'workspace-write', workspaceRoot: tmpdir() })[1] as string
+    const profile = seatbeltProfileArgs({ mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: tmpdir() })[1] as string
     const grant = `(subpath "${realpathSync(tmpdir())}")`
     expect(profile).toContain(grant)
     expect(profile.split(grant)).toHaveLength(2)
@@ -119,6 +119,7 @@ describe('runnerCommand config', () => {
     expect(confined).toEqual({
       argv: ['fake-runner', '--flag', ...bwrapProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
+      networkEnforcement: 'full',
       // An operator runner's kernel mechanism is unknown: both Linux
       // file-denial dialects, never bare EPERM.
       denialSignatures: ['read-only file system', 'permission denied'],
@@ -167,6 +168,7 @@ describe('the platform chains', () => {
     expect(confined).toEqual({
       argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
+      networkEnforcement: 'full',
       denialSignatures: ['read-only file system'],
       runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }],
     })
@@ -182,6 +184,7 @@ describe('the platform chains', () => {
     expect(confined).toEqual({
       argv: [launcher, ...landlockProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
+      networkEnforcement: 'full',
       denialSignatures: ['permission denied'],
       runnerFailureRules: [{
         allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
@@ -202,6 +205,7 @@ describe('the platform chains', () => {
     expect(confined).toEqual({
       argv: ['sandbox-exec', ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
+      networkEnforcement: 'full',
       denialSignatures: ['operation not permitted'],
       runnerFailureRules: [{ fatalSignatures: ['sandbox-exec: '] }],
     })
@@ -365,6 +369,7 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
     expect(confined).toEqual({
       argv: [exec, ...seatbeltProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
+      networkEnforcement: 'full',
       denialSignatures: ['operation not permitted'],
       runnerFailureRules: [{ fatalSignatures: ['sandbox-exec: '] }],
     })
@@ -392,6 +397,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('partial')
+    expect(confined.networkEnforcement).toBe('partial')
     expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
   })

@@ -24,9 +24,10 @@ assert.equal(LAUNCHER_FAILURE_EXIT, 125);
 // --- grantArgs: flag spelling, ordering, and empty grants ---
 assert.deepEqual(grantArgs({}), []);
 assert.deepEqual(grantArgs({ readOnly: ['/'] }), ['--ro', '/']);
+assert.deepEqual(grantArgs({ denyNetwork: true }), ['--deny-network']);
 assert.deepEqual(
-  grantArgs({ readOnly: ['/', '/opt'], readWrite: ['/tmp/work'] }),
-  ['--ro', '/', '--ro', '/opt', '--rw', '/tmp/work'],
+  grantArgs({ readOnly: ['/', '/opt'], readWrite: ['/tmp/work'], denyNetwork: true }),
+  ['--ro', '/', '--ro', '/opt', '--rw', '/tmp/work', '--deny-network'],
 );
 assert.deepEqual(grantArgs({ readWrite: ['/a'], readOnly: ['/b'] }), ['--ro', '/b', '--rw', '/a']);
 

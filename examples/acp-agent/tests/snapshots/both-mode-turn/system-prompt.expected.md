@@ -240,6 +240,8 @@ interface ToolOutputMap {
     sandbox?: {
       mode: string;
       denied: boolean;
+      networkMode: string;
+      networkEnforcement: string;
       enforcement?: string;
       runnerFailed?: boolean;
     };

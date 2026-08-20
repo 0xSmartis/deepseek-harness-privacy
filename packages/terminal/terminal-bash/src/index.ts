@@ -91,13 +91,15 @@ export const PWSH_PROMPT_SETUP =
 
 function spawnArgv(ctx: Context, config: ResolvedConfig, policy: SandboxExecutionPolicy): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
-  if (policy.mode === 'danger-full-access') return argv
   const sandbox = ctx.get('sandbox')
   if (sandbox === undefined) {
-    throw new Error(`terminal-bash: sandbox mode "${policy.mode}" requires a ctx.sandbox provider in the execution world`)
+    throw new Error('terminal-bash: sandbox policy requires a ctx.sandbox provider in the execution world')
   }
-  // Re-state the discriminant because object spread does not preserve its narrowed type.
-  return sandbox.confine(argv, { ...policy, mode: policy.mode }).argv
+  const confined = sandbox.confine(argv, policy)
+  if (confined.networkEnforcement !== 'full') {
+    throw new Error('terminal-bash: the selected sandbox backend cannot fully enforce child-network denial')
+  }
+  return confined.argv
 }
 
 // TODO(pty-initialize-race-home): Fold this outer abort race into

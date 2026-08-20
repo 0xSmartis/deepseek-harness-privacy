@@ -32,7 +32,7 @@
 
 结果文本依次包含 stdout、可选的 `[stderr]` 段落和适用的沙箱拒绝、超时、信号、退出代码及截断标记。超时与最终退出状态分别报告；非零退出仍是由模型解释的结果，不会成为 `isError`。截断结果会链接安全的完整 spill 文件，或报告文件不可用。只有 spawn 错误和中止等基础设施故障才会产生 `isError`。
 
-已完成前台进程的规范成功值为 `{ kind: 'foreground', ...ShellRunResult }`，已发布任务则为 `{ kind: 'background', jobId }`。Native renderer 保留上述文本，包括精确的 `started background job <id>`；程序化消费方使用带类型字段，无需解析这些字符串。执行器的流上限仍是 `ShellRunResult` 的采集限制，并携带其 spill 路径。
+已完成前台进程的规范成功值为 `{ kind: 'foreground', ...ShellRunResult }`，已发布任务则为 `{ kind: 'background', jobId }`。执行器沙箱事实存在时包含 `mode`、`denied`、`networkMode`、`networkEnforcement`，以及可选的 `enforcement`／`runnerFailed`。Native renderer 保留上述文本，包括精确的 `started background job <id>`；程序化消费方使用带类型字段，无需解析这些字符串。执行器的流上限仍是 `ShellRunResult` 的采集限制，并携带其 spill 路径。
 
 当 `run_in_background` 为 true 时，此插件会在 spawn 前预检 `ctx.jobs.start()`，把调用方 agent 注册为持有者，并将返回的 `ShellProcess` 句柄适配为通用的取消／完成／增量输出钩子。任务运行时负责 job id、跨会话隔离、完成通知、等待和 dispose（资源释放）清理；此插件只把 bash 退出／沙箱事实映射为任务输出和结果详情。`enableRunInBackground: false` 会移除该参数，并在执行时拒绝强制后台调用。
 

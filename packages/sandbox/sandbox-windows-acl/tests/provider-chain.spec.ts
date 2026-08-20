@@ -13,8 +13,8 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
-const RO: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
-const WW: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws' }
+const RO: SandboxPolicy = { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/ws' }
+const WW: SandboxPolicy = { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: '/ws' }
 
 async function setup(internals: LocalSandboxProvider['internals']) {
   const ctx = new Context()
@@ -42,6 +42,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
       'pwsh', '/Command', 'x',
     ])
     expect(confined.enforcement).toBe('partial')
+    expect(confined.networkEnforcement).toBe('partial')
     expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
     // A sole candidate is selected unprobed.
@@ -53,6 +54,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
     const confined = sandbox.confine(['true'], RO)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('partial')
+    expect(confined.networkEnforcement).toBe('partial')
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
   })
 })

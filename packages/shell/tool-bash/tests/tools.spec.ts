@@ -114,7 +114,7 @@ class RecordingSandboxExecutor extends ShellExecutor {
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
-      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
+      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: process.cwd() },
     }
   }
 
@@ -130,6 +130,8 @@ class RecordingSandboxExecutor extends ShellExecutor {
       stderr: { text: '', truncated: false },
       sandbox: {
         mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        networkMode: spec.sandboxPolicy?.networkMode ?? 'deny-all',
+        networkEnforcement: 'full',
         denied: false,
         ...spec.command === 'without optional sandbox facts'
           ? {}
@@ -145,7 +147,12 @@ class RecordingSandboxExecutor extends ShellExecutor {
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+      sandbox: {
+        mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        networkMode: spec.sandboxPolicy?.networkMode ?? 'deny-all',
+        networkEnforcement: 'full',
+        denied: false,
+      },
       readOutput: () => ({ delta: '', lossy: false }),
       kill: () => false,
     }
@@ -703,7 +710,7 @@ describe('sandbox escalation through the generic task producer', () => {
     if (result.isError) throw new Error('expected foreground bash success')
     expect(result.value).toMatchObject({
       kind: 'foreground',
-      sandbox: { mode: 'read-only', denied: false },
+      sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: false },
     })
     expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('enforcement')
     expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('runnerFailed')
@@ -750,13 +757,13 @@ describe('renderProcessRead', () => {
   })
 
   it('appends settled sandbox denial and runner-failure facts', () => {
-    expect(renderProcessRead(base, { mode: 'read-only', denied: true }, ['workspace-write']))
+    expect(renderProcessRead(base, { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true }, ['workspace-write']))
       .toContain('[sandbox: escalation available')
-    expect(renderProcessRead({ delta: 'tail', lossy: false }, { mode: 'read-only', denied: true }))
+    expect(renderProcessRead({ delta: 'tail', lossy: false }, { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true }))
       .toBe('tail\n[sandbox: file access denied under read-only mode]')
     const runner = renderProcessRead(
       { delta: '', lossy: false },
-      { mode: 'workspace-write', denied: true, runnerFailed: true },
+      { mode: 'workspace-write', networkMode: 'deny-all', networkEnforcement: 'full', denied: true, runnerFailed: true },
       ['danger-full-access'],
     )
     expect(runner).toContain('sandbox runner itself failed under workspace-write mode')
@@ -897,11 +904,11 @@ describe('renderResult', () => {
       timeoutMs: 1000,
       stdout: { text: '', truncated: false },
       stderr: { text: 'denied', truncated: false },
-      sandbox: { mode: 'read-only', denied: true },
+      sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true },
     }
     expect(renderResult(result)).toMatch(/denied under read-only mode\]\n\[exit code: 1\]$/)
     expect(renderResult(result, ['workspace-write'])).toContain('[sandbox: escalation available')
-    expect(renderResult({ ...result, sandbox: { mode: 'read-only', denied: false } }, ['workspace-write']))
+    expect(renderResult({ ...result, sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: false } }, ['workspace-write']))
       .not.toContain('[sandbox:')
   })
 })

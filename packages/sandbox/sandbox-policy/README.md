@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The single owner of sandbox-policy resolution: the deployment's default [`SandboxMode`](../sandbox/README.md) and fallback root, plus each session's durable mode override and immutable workspace root. Every enforcing capability receives one resolved mode-and-root policy per call; before each request, the model receives the current policy without a separate capability inventory.
+The single owner of sandbox-policy resolution: the deployment's default file [`SandboxMode`](../sandbox/README.md), the default-denied child-network policy, and the fallback root, plus each session's durable file-mode override and immutable workspace root. Every enforcing capability receives one resolved policy per call; before each request, the model receives the current policy without a separate capability inventory.
 
 ## Why a shared home
 
@@ -15,7 +15,7 @@ Filesystem tools, one-shot bash commands, and terminal sessions may enforce the 
 
 ## API
 
-- `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. An explicit approved mode outranks the session's last `sandbox/mode` event, which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
+- `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. It always sets `networkMode: 'deny-all'`. An explicit approved file mode outranks the session's last `sandbox/mode` event, which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
 - `ctx.sandboxPolicy.defaultMode` / `ctx.sandboxPolicy.workspaceRoot` — the deployment default and fallback root used by `resolve()`.
 - `sandbox:policy` — a request-time cache-safe context contribution derived directly from `resolve({ session })`. It states the mode's capability-neutral file-effect contract and the canonical session workspace under `workspace-write`; tool owners retain operation-specific denial and escalation guidance.
 - `effectiveSandboxMode(events)` — the pure fold of a session's `sandbox/mode` events (the last switch wins, or `undefined`), used inside `resolve()`.
@@ -39,19 +39,19 @@ One `sandbox:policy` contribution in the current runtime-context snapshot for ev
 ##### Read-only
 
 ```markdown
-Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.
+Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns. Agent-controlled commands cannot open Internet-protocol connections; local Unix-domain IPC remains available.
 ```
 
 ##### Workspace-write
 
 ```markdown
-Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
+Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable. Agent-controlled commands cannot open Internet-protocol connections; local Unix-domain IPC remains available.
 ```
 
 ##### Danger-full-access
 
 ```markdown
-Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.
+Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations. Agent-controlled commands cannot open Internet-protocol connections; local Unix-domain IPC remains available.
 ```
 
 #### Token effect
@@ -65,5 +65,5 @@ The stable system prompt remains byte-identical across mode changes. A changed f
 ## Known Limitations and Deferred Work
 
 - **One primary workspace root per session** — policy resolves `SessionHeader.cwd`; extra writable roots are not part of `SandboxExecutionPolicy`.
-- **File-effect modes only** — `SandboxMode` governs file effects; network and process policy are outside its vocabulary, so no knob here restricts them.
+- **Network policy is fixed and deny-only** — every resolved policy carries `networkMode: 'deny-all'`; destination-scoped approval is deferred.
 - **Temporary areas are deliberately summarized** — enforcing backends grant different platform temporary areas, which are selected after policy resolution and therefore cannot be enumerated truthfully in the current context.

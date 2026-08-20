@@ -1,6 +1,6 @@
 # Architecture
 
-This repository owns confinement *mechanism*, not policy: consumers (agent harnesses and sandbox capabilities) decide which paths a run may read or write; this package family provides the launcher that enforces those grants and the JavaScript API that resolves and speaks to it. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
+This repository owns confinement *mechanism*, not policy: consumers decide which paths a run may read or write and whether its process tree may create IP sockets. This package family enforces those filesystem grants and the optional inherited network denial, while the JavaScript API resolves and speaks to the launcher. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
 
 ## Two-layer package family
 
@@ -17,7 +17,7 @@ There is no shared loader package: platform packages have nothing to load. If a 
 
 `launcherPath()` resolves `@deepseek-ai/node-addon-landlock-run-<platform>-<arch>` and returns `<package>/bin/landlock-run`. When the package is not resolvable it returns a deterministic fallback path inside the entry package's own `node_modules` that simply never exists. Existence is deliberately unchecked either way: `probe()` is the single availability signal, and a missing binary probes `unusable` exactly like an unenforcing kernel. Consumers get one degradation path, not two.
 
-The probe is functional — the launcher builds and enforces a real maximal ruleset in a short-lived child — because version checks would miss a kernel that has the syscalls but refuses enforcement.
+The probe is functional — the launcher builds and enforces a real maximal Landlock ruleset plus the seccomp network filter in a short-lived child — because version checks would miss a kernel that has the syscalls but refuses enforcement.
 
 ## Fail-closed everywhere
 

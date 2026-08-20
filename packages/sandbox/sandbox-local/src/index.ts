@@ -35,7 +35,7 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, RunnerFailureRule, SandboxEnforcement, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AclWriteGrant, assertTempRootOutsideWorkspace, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
@@ -66,7 +66,7 @@ export interface Config {
 
 /** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
 function defaultProbeBwrap(timeoutMs: number): boolean {
-  const probe = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent', '--', 'true'], {
+  const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/' }), '--', 'true'], {
     timeout: timeoutMs,
     stdio: 'ignore',
   })
@@ -83,7 +83,7 @@ function defaultProbeBwrap(timeoutMs: number): boolean {
  * every macOS; if it ever disappears, this probe is what fails closed.
  */
 function defaultProbeSeatbelt(seatbeltExec: string, timeoutMs: number): boolean {
-  const probe = spawnSync(seatbeltExec, [...seatbeltProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], {
+  const probe = spawnSync(seatbeltExec, [...seatbeltProfileArgs({ mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/' }), '--', 'true'], {
     timeout: timeoutMs,
     stdio: 'ignore',
   })
@@ -308,16 +308,17 @@ export class LocalSandboxProvider extends SandboxProvider {
    * chain's runner speaking its own profile dialect.
    *
    * @param argv - the exact argv the caller is about to spawn.
-   * @param policy - the file-effect policy this execution runs under.
-   * @returns the wrapped argv plus the selected backend's enforcement completeness, denial
-   *   signatures, and structured runner-failure rules; throws the fail-closed
-   *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
+   * @param policy - the complete file and child-network policy this execution runs under.
+   * @returns the wrapped argv plus the selected backend's file and network enforcement
+   *   completeness, denial signatures, and structured runner-failure rules; throws the
+   *   fail-closed `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     if (this.runnerCommand !== undefined) {
       return {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
+        networkEnforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
         runnerFailureRules: [{ fatalSignatures: this.configuredRunnerFailureSignatures }],
       }
@@ -327,6 +328,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     return {
       argv: [...runnerArgv, '--', ...argv],
       enforcement: selected.enforcement,
+      networkEnforcement: selected.runner === 'windows-acl' ? 'partial' : 'full',
       denialSignatures: DENIAL_SIGNATURES[selected.runner],
       runnerFailureRules: RUNNER_FAILURE_RULES[selected.runner],
     }
@@ -489,7 +491,7 @@ export class LocalSandboxProvider extends SandboxProvider {
    * functional probes in chain order. Fail closed when the platform has no
    * chain or no candidate passes — the command never runs.
    */
-  private selectRunner(mode: ConfinedSandboxMode): SelectedRunner {
+  private selectRunner(mode: SandboxMode): SelectedRunner {
     this.selectedRunner ??= this.chainVerdict()
     if (this.selectedRunner === 'unavailable') throw new SandboxUnavailableError(mode)
     return this.selectedRunner

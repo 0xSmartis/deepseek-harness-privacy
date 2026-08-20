@@ -1,6 +1,6 @@
 /**
- * Service Definition for the same-world process-confinement capability seam: wrap exact subprocess argv under a
- * host-path file policy. Containers, microVMs, and remote execution replace the
+ * Service Definition for the same-world process-confinement capability seam: wrap exact subprocess argv under
+ * independent host-path file and child-network policies. Containers, microVMs, and remote execution replace the
  * surrounding capability seam instead; this service shares the host kernel and filesystem.
  * @module @deepseek-ai/dsh-sandbox
  */
@@ -23,22 +23,27 @@ export { canonicalPath, writableRoots } from './roots.ts'
 /**
  * File-effect policy for confined processes. `read-only` permits only required
  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
- * backend-defined temp area; `danger-full-access` bypasses confinement. Network
- * and process visibility are outside this vocabulary.
+ * backend-defined temp area; `danger-full-access` bypasses file confinement.
+ * Child networking remains independently governed by {@link SandboxNetworkMode}.
  */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
-/** A confining (non-`danger-full-access`) mode — the modes a {@link SandboxPolicy} can carry. */
+/** A confining file mode. Network policy can still require a runner when the file mode is `danger-full-access`. */
 export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 
+/** Network policy for an agent-controlled process tree. `deny-all` permits local Unix-domain IPC only. */
+export type SandboxNetworkMode = 'deny-all'
+
 /**
- * The complete file-effect policy resolved for one capability call. The root
- * is carried even under modes that do not consume it so callers can resolve
- * policy once before choosing the enforcement path.
+ * The complete file and child-network policy resolved for one capability call.
+ * The root is carried even under modes that do not consume it so callers can
+ * resolve policy once before choosing the enforcement path.
  */
 export interface SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: SandboxMode
+  /** Network policy inherited by the process and every descendant. */
+  networkMode: SandboxNetworkMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
   /**
@@ -59,17 +64,12 @@ export interface SandboxExecutionPolicy {
 export type SandboxEnforcement = 'full' | 'partial'
 
 /**
- * What one confined execution is allowed to touch — carried PER CALL, not
- * fixed on the provider: two consumers may confine under different policies
- * at the same instant (bash under `read-only` while a confined child agent
- * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is an explicit step at
- * the consumer boundary; the provider treats the policy as fully specified.
+ * What one sandboxed execution is allowed to touch — carried per call, not
+ * fixed on the provider. `danger-full-access` is valid here because it bypasses
+ * file restrictions only; the provider still enforces the independent network
+ * policy. Defaulting and resolution happen at the consumer boundary.
  */
-export interface SandboxPolicy extends SandboxExecutionPolicy {
-  /** The file-effect mode this execution runs under. */
-  mode: ConfinedSandboxMode
-}
+export type SandboxPolicy = SandboxExecutionPolicy
 
 /**
  * Evidence that identifies a sandbox runner failing before it executes the
@@ -88,15 +88,16 @@ export interface RunnerFailureRule {
 }
 
 /**
- * A {@link SandboxProvider.confine} result: the argv to spawn in place of
- * the caller's own, plus the enforcement completeness the selected backend
- * achieves for it.
+ * A {@link SandboxProvider.confine} result: the argv to spawn in place of the
+ * caller's own, plus the backend's classification facts.
  */
 export interface ConfinedArgv {
   /** The wrapped argv (runner, profile, separator, then the caller's argv). */
   argv: string[]
   /** How completely the selected backend enforces the policy's file effects. */
   enforcement: SandboxEnforcement
+  /** How completely the selected backend enforces child-network denial. */
+  networkEnforcement: SandboxEnforcement
   /**
    * The selected backend's denial DIALECT: the case-insensitive stderr
    * substrings a file effect denied by THIS backend produces (EROFS text
@@ -129,13 +130,12 @@ export const SANDBOX_UNAVAILABLE = 'SANDBOX_UNAVAILABLE'
  * channel.
  */
 export class SandboxUnavailableError extends HarnessError {
-  constructor(mode: ConfinedSandboxMode, detail?: string) {
+  constructor(mode: SandboxMode, detail?: string) {
     super(
-      `sandbox mode "${mode}" is requested but no sandbox backend is usable on this host; `
-      + 'refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing '
+      `sandbox policy with file mode "${mode}" is requested but no sandbox backend is usable on this host; `
+      + 'refusing to run the command without its file and network restrictions. Install bubblewrap or run a Landlock-enforcing '
       + 'kernel (Linux), ensure sandbox-exec is usable (macOS), or ensure the ACL '
-      + 'restricted-token runner can start (Windows) — otherwise switch the consumer to '
-      + 'danger-full-access.'
+      + 'restricted-token runner can enforce the selected policy (Windows).'
       + (detail === undefined ? '' : ` Runner failure: ${detail}`),
       SANDBOX_UNAVAILABLE,
     )
@@ -167,10 +167,10 @@ export abstract class SandboxProvider extends Service {
    * @param argv - the exact argv the caller is about to spawn (program plus
    *   arguments), NOT a shell string — a shell-shaped consumer passes
    *   `['bash', '-c', command]`.
-   * @param policy - the file-effect policy this execution runs under,
+   * @param policy - the complete file and child-network policy this execution runs under,
    *   carried per call (see {@link SandboxPolicy}).
-   * @returns the argv to spawn instead, plus the enforcement completeness
-   *   the selected backend achieves for it.
+   * @returns the argv to spawn instead, plus independent file and network
+   *   enforcement completeness.
    */
   abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 }

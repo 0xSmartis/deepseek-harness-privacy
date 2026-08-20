@@ -7,7 +7,7 @@
  * @module dsh-shell/types
  */
 
-import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode, SandboxNetworkMode } from '@deepseek-ai/dsh-sandbox'
 import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-subprocess'
 
 export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
@@ -23,8 +23,12 @@ export interface ShellSandboxInfo {
   mode: SandboxMode
   /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /** How completely the selected runner enforced the requested mode. */
+  /** How completely the selected runner enforced the requested file mode. */
   enforcement?: SandboxEnforcement
+  /** The network policy inherited by the process tree. */
+  networkMode: SandboxNetworkMode
+  /** How completely the selected runner enforced the network policy. */
+  networkEnforcement: SandboxEnforcement
   /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }

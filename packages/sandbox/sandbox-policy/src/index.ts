@@ -1,7 +1,7 @@
 /**
  * The sandbox POLICY home (`ctx.sandboxPolicy`): the single owner of the
  * deployment's sandbox fallbacks plus per-session resolution: the file-effect
- * {@link SandboxMode}, the `workspace-write` root, and the override kit (the
+ * {@link SandboxMode}, default-denied child networking, the `workspace-write` root, and the override kit (the
  * `sandbox/mode` event, its fold, and its write path, from `./session-mode.ts`).
  * Before each agent request, the owner also contributes the resolved policy to
  * the cache-safe runtime-context snapshot. The agent loop logs that snapshot as
@@ -36,13 +36,14 @@ function resolveWorkspaceRoot(path: string): string {
 
 /** Render the policy without claiming which capabilities are mounted. */
 function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+  const network = ' Agent-controlled commands cannot open Internet-protocol connections; local Unix-domain IPC remains available.'
   switch (policy.mode) {
     case 'read-only':
-      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
+      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.' + network
     case 'workspace-write':
-      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.${network}`
     case 'danger-full-access':
-      return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
+      return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.' + network
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
     default: {
       const mode: never = policy.mode
@@ -136,6 +137,7 @@ export class SandboxPolicyService extends Service {
     const { session } = request
     return {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
+      networkMode: 'deny-all',
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
       ...session === undefined ? {} : { sessionId: session.id },
     }

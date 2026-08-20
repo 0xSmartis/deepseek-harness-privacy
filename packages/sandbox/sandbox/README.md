@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Process-sandbox Service Definition. Owns the `ctx.sandbox` service contract ([`SandboxProvider`](src/index.ts)) and the confinement vocabulary the harness shares: `SandboxMode` (`read-only` / `workspace-write` / `danger-full-access`, file effects only), `SandboxEnforcement` (`full` / `partial`, per kernel ABI), `SandboxExecutionPolicy` (the complete per-call mode + workspace root), `SandboxPolicy` (its confined subset), and the fail-closed `SANDBOX_UNAVAILABLE` error. As the Service Definition role of the [capability-seam split](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), it depends only on cordis (+ the harness error base), never on a backend.
+Process-sandbox Service Definition. Owns the `ctx.sandbox` service contract ([`SandboxProvider`](src/index.ts)) and the confinement vocabulary the harness shares: `SandboxMode` (`read-only` / `workspace-write` / `danger-full-access`, file effects only), `SandboxNetworkMode` (`deny-all`), `SandboxEnforcement` (`full` / `partial`, reported independently for files and networking), `SandboxExecutionPolicy` (the complete per-call policy), and the fail-closed `SANDBOX_UNAVAILABLE` error. As the Service Definition role of the [capability-seam split](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), it depends only on cordis (+ the harness error base), never on a backend.
 
-The contract in one line: `ctx.sandbox.confine(argv, policy)` returns the argv to spawn INSTEAD of your own — wrapped so the process (and everything it spawns) runs confined — plus the selected backend's enforcement completeness, denial dialect (`denialSignatures`), and structured runner-failure evidence (`runnerFailureRules`); when no backend is usable it throws rather than passing the argv through unconfined. The [core type catalog](../../../docs/subsystems/sandbox.md#wrapped-argv-and-classification-dialects) owns the exact classifier shape.
+The contract in one line: `ctx.sandbox.confine(argv, policy)` returns the argv to spawn INSTEAD of your own — wrapped so the process and every descendant inherit the requested file and network restrictions — plus the selected backend's independent enforcement facts, denial dialect (`denialSignatures`), and structured runner-failure evidence (`runnerFailureRules`); when no backend is usable it throws rather than passing the argv through without the promised restrictions. The [core type catalog](../../../docs/subsystems/sandbox.md#wrapped-argv-and-classification-dialects) owns the exact classifier fields.
 
 Policy rides the call, not the provider: two consumers may confine under different policies at the same instant (bash under `read-only` while a confined child agent keeps its state directory writable), and an approved escalated retry is just a new call with a wider policy.
 
@@ -23,7 +23,7 @@ Through [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md) and [`dsh-tool-
 ##### Exact error
 
 ```markdown
-sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS), or ensure the ACL restricted-token runner can start (Windows) — otherwise switch the consumer to danger-full-access.
+sandbox policy with file mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command without its file and network restrictions. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS), or ensure the ACL restricted-token runner can enforce the selected policy (Windows).
 ```
 
 #### Token effect
@@ -36,7 +36,8 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **File effects are the whole policy vocabulary** — the seam expresses no network, process, syscall, device, or credential restrictions.
+- **Network policy is deny-only** — `deny-all` blocks Internet-protocol sockets while preserving Unix-domain IPC; destination-scoped grants are not yet part of the vocabulary.
+- **Process, device, and credential access remain outside this seam** — the network filter blocks `io_uring_setup` to prevent socket bypass, but the service is not a general syscall sandbox.
 - **Same-world confinement only** — containers, microVMs, and remote execution require replacing capability implementations rather than adding a provider here.
 - **Denial reporting is a stderr dialect** — the seam returns backend signatures instead of a typed runtime denial channel, so consumers that need classification must infer it from the child process's output.
 - **Runner diagnostics are in-band** — exit status plus stderr evidence cannot prove which process wrote a matching line, so a confined child that deliberately mimics its runner can cause an availability/diagnostic false attribution. This cannot bypass confinement; an out-of-band runner-status channel is deferred.

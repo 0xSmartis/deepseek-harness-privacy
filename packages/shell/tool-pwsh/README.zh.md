@@ -32,7 +32,7 @@
 
 结果文本包含 stdout、可选的 `[stderr]` 段，然后是适用的截断、sandbox 拒绝（组合公开升级能力时带同轮次升级提示）、超时、signal 与退出 marker。干净退出（0、无 signal）不产生 marker；空体渲染为 `(no output)`。截断会链接一个安全的完整 spill 文件，或报告其不可用。超时独立于最终退出状态报告；非零退出仍是模型解读的结果而非 `isError`。Windows 上强制终止以无 signal 的 exit 1 结算，因此 `[killed by signal: …]` 仅适用于 POSIX。只有基础设施失败——spawn 错误与中止（`tool call aborted`）——产生 `isError`。
 
-规范成功形态是已完成前台进程的 `{ kind: 'foreground', ...ShellRunResult }`（存在时投影执行器的 `sandbox` 事实——`mode`/`denied`、可选的 `enforcement`/`runnerFailed`）或已发布任务的 `{ kind: 'background', jobId }`。渲染器对后台 ack 精确保留 `started background job <id>`；编程消费者使用类型化字段而不解析渲染文本。
+规范成功形态是已完成前台进程的 `{ kind: 'foreground', ...ShellRunResult }`（存在时投影执行器的 `sandbox` 事实——`mode`／`denied`／`networkMode`／`networkEnforcement`，以及可选的 `enforcement`／`runnerFailed`）或已发布任务的 `{ kind: 'background', jobId }`。渲染器对后台 ack 精确保留 `started background job <id>`；编程消费者使用类型化字段而不解析渲染文本。
 
 当 `run_in_background` 为 true 时，本插件在 spawn 前预检 `ctx.jobs.start()`，把调用 agent 注册为 owner，并将返回的 `ShellProcess` 句柄适配为通用的 cancel/done/增量输出钩子。任务运行时负责 job id、跨会话隔离、完成通知、等待和 dispose（资源释放）清理；本插件只把 pwsh 退出事实映射进任务输出与结果明细。`enableRunInBackground: false` 会移除参数并在执行时拒绝强制的后台调用。
 

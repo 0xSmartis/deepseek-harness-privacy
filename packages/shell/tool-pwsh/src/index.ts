@@ -80,7 +80,14 @@ interface PwshForegroundResult {
   timeoutMs: number
   stdout: { text: string; truncated: boolean; spillPath?: string }
   stderr: { text: string; truncated: boolean; spillPath?: string }
-  sandbox?: { mode: string; denied: boolean; enforcement?: string; runnerFailed?: boolean }
+  sandbox?: {
+    mode: string
+    denied: boolean
+    networkMode: string
+    networkEnforcement: string
+    enforcement?: string
+    runnerFailed?: boolean
+  }
 }
 
 /* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
@@ -178,6 +185,8 @@ function canonicalPwshResult(result: ShellRunResult): PwshForegroundResult {
       sandbox: {
         mode: result.sandbox.mode,
         denied: result.sandbox.denied,
+        networkMode: result.sandbox.networkMode,
+        networkEnforcement: result.sandbox.networkEnforcement,
         ...result.sandbox.enforcement !== undefined ? { enforcement: result.sandbox.enforcement } : {},
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
@@ -328,6 +337,8 @@ export function apply(ctx: Context, config: Config = {}): void {
                 properties: {
                   mode: { type: 'string', required: true },
                   denied: { type: 'boolean', required: true },
+                  networkMode: { type: 'string', required: true },
+                  networkEnforcement: { type: 'string', required: true },
                   enforcement: { type: 'string' },
                   runnerFailed: { type: 'boolean' },
                 },

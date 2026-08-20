@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -51,11 +52,59 @@ function runConfined(sandbox: LocalSandboxProvider, command: string, policy: San
   return { result, enforcement: confined.enforcement }
 }
 
+function connectArgv(host: string, port: number): string[] {
+  return [process.execPath, '-e', `const socket = require('node:net').connect(${port}, ${JSON.stringify(host)}); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(17)); setTimeout(() => process.exit(18), 1000)`]
+}
+
+function descendantConnectArgv(host: string, port: number): string[] {
+  const child = connectArgv(host, port)
+  return [process.execPath, '-e', `const { spawnSync } = require('node:child_process'); const result = spawnSync(${JSON.stringify(child[0])}, ${JSON.stringify(child.slice(1))}, { stdio: 'inherit' }); process.exit(result.status ?? 19)`]
+}
+
 describe.skipIf(!landlockUsable)('sandbox-local: real Landlock confinement through the bundled launcher', () => {
+  it('denies direct and descendant IP connections, including loopback and a reserved remote address', async () => {
+    const workdir = await tempDir(tmpdir())
+    const sandbox = await provider()
+    const policy = { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: workdir } as const
+    const server = createServer(socket => socket.destroy())
+    const socketPath = join(workdir, 'local-ipc.sock')
+    const ipcServer = createServer(socket => socket.destroy())
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    await new Promise<void>((resolve, reject) => {
+      ipcServer.once('error', reject)
+      ipcServer.listen(socketPath, resolve)
+    })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('expected a TCP listener')
+      for (const argv of [
+        connectArgv('127.0.0.1', address.port),
+        descendantConnectArgv('127.0.0.1', address.port),
+        connectArgv('198.51.100.1', 443),
+      ]) {
+        const confined = sandbox.confine(argv, policy)
+        const result = spawnSync(confined.argv[0] as string, confined.argv.slice(1), { timeout: 5_000 })
+        expect(result.status).toBe(17)
+        expect(confined.networkEnforcement).toBe('full')
+      }
+      const ipcArgv = [process.execPath, '-e', `const socket = require('node:net').connect(${JSON.stringify(socketPath)}); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(17)); setTimeout(() => process.exit(18), 1000)`]
+      const ipc = sandbox.confine(ipcArgv, policy)
+      expect(spawnSync(ipc.argv[0] as string, ipc.argv.slice(1), { timeout: 5_000 }).status).toBe(0)
+    } finally {
+      await Promise.all([
+        new Promise<void>(resolve => server.close(() => { resolve() })),
+        new Promise<void>(resolve => ipcServer.close(() => { resolve() })),
+      ])
+    }
+  })
+
   it('read-only denies a write — the file must NOT exist, the wrap reports the probed enforcement', async () => {
     const workdir = await tempDir(tmpdir())
     const sandbox = await provider()
-    const { result, enforcement: wrapped } = runConfined(sandbox, `echo hi > ${workdir}/denied.txt`, { mode: 'read-only', workspaceRoot: workdir })
+    const { result, enforcement: wrapped } = runConfined(sandbox, `echo hi > ${workdir}/denied.txt`, { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(result.status).not.toBe(0)
     expect(wrapped).toBe(enforcement)
     expect(existsSync(join(workdir, 'denied.txt'))).toBe(false)
@@ -64,7 +113,7 @@ describe.skipIf(!landlockUsable)('sandbox-local: real Landlock confinement throu
   it('read-only keeps the tree readable/executable and /dev/null writable', async () => {
     const workdir = await tempDir(tmpdir())
     const sandbox = await provider()
-    const { result } = runConfined(sandbox, 'ls / > /dev/null && echo dev-ok', { mode: 'read-only', workspaceRoot: workdir })
+    const { result } = runConfined(sandbox, 'ls / > /dev/null && echo dev-ok', { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(result.status).toBe(0)
     expect(result.stdout).toBe('dev-ok\n')
   })
@@ -76,7 +125,7 @@ describe.skipIf(!landlockUsable)('sandbox-local: real Landlock confinement throu
     const workdir = await tempDir(tmpdir())
     const sandbox = await provider()
     const target = `/dev/shm/dsh-landlock-e2e-${process.pid}`
-    const { result } = runConfined(sandbox, `echo hi > ${target}`, { mode: 'read-only', workspaceRoot: workdir })
+    const { result } = runConfined(sandbox, `echo hi > ${target}`, { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(result.status).not.toBe(0)
     expect(existsSync(target)).toBe(false)
   })
@@ -86,11 +135,11 @@ describe.skipIf(!landlockUsable)('sandbox-local: real Landlock confinement throu
     const outside = await tempDir(homedir())
     const sandbox = await provider()
 
-    const inside = runConfined(sandbox, `printf landlock-ok > ${workdir}/allowed.txt`, { mode: 'workspace-write', workspaceRoot: workdir })
+    const inside = runConfined(sandbox, `printf landlock-ok > ${workdir}/allowed.txt`, { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(inside.result.status).toBe(0)
     expect(readFileSync(join(workdir, 'allowed.txt'), 'utf8')).toBe('landlock-ok')
 
-    const denied = runConfined(sandbox, `echo hi > ${outside}/denied.txt`, { mode: 'workspace-write', workspaceRoot: workdir })
+    const denied = runConfined(sandbox, `echo hi > ${outside}/denied.txt`, { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(denied.result.status).not.toBe(0)
     expect(existsSync(join(outside, 'denied.txt'))).toBe(false)
   })
@@ -99,7 +148,7 @@ describe.skipIf(!landlockUsable)('sandbox-local: real Landlock confinement throu
     const workdir = await tempDir(homedir())
     const scratch = await tempDir(tmpdir())
     const sandbox = await provider()
-    const { result } = runConfined(sandbox, `printf tmp-ok > ${scratch}/scratch.txt`, { mode: 'workspace-write', workspaceRoot: workdir })
+    const { result } = runConfined(sandbox, `printf tmp-ok > ${scratch}/scratch.txt`, { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: workdir })
     expect(result.status).toBe(0)
     expect(readFileSync(join(scratch, 'scratch.txt'), 'utf8')).toBe('tmp-ok')
   })

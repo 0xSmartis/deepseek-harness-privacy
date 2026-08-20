@@ -140,9 +140,9 @@ interface ShellRunResult {
 
 ## 文件沙箱：`ShellSandboxInfo`
 
-使用沙箱的执行器通过 `ShellExecutor.sandboxMode` 暴露其已配置的模式回退值。工具层请求 [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)，把每个调用会话的持久 `sandbox/mode` 覆盖值与不可变 cwd 解析为 `ShellExecRequest.sandboxPolicy`；经用户批准、严格更宽松的调用只替换模式。模式/root/enforcement 词汇归 [`@deepseek-ai/dsh-sandbox` 沙箱 seam](sandbox.md) 所有；模式仅管辖文件效果。
+使用沙箱的执行器通过 `ShellExecutor.sandboxMode` 暴露其已配置的文件模式回退值。工具层请求 [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)，把每个调用会话的持久 `sandbox/mode` 覆盖值与不可变 cwd 解析为 `ShellExecRequest.sandboxPolicy`；经用户批准、严格更宽松的调用只替换文件模式。文件模式、网络模式、root 与相互独立的强制执行事实归 [`@deepseek-ai/dsh-sandbox` 沙箱 seam](sandbox.md) 所有。
 
-沙箱化运行会报告其模式、保守的拒绝分类与强制执行完整度。`runnerFailed` 标记命令运行前沙箱 runner 已失败；前台执行会抛出 `SANDBOX_UNAVAILABLE`，而已结束的后台进程只能通过其事实通道报告。
+沙箱化运行会报告其文件模式、网络模式、保守的文件拒绝分类与相互独立的强制执行完整度。`runnerFailed` 标记命令运行前沙箱 runner 已失败；前台执行会抛出 `SANDBOX_UNAVAILABLE`，而已结束的后台进程只能通过其事实通道报告。
 
 ```ts type-equiv
 /**
@@ -155,14 +155,18 @@ interface ShellSandboxInfo {
   mode: SandboxMode
   /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /** How completely the selected runner enforced the requested mode. */
+  /** How completely the selected runner enforced the requested file mode. */
   enforcement?: SandboxEnforcement
+  /** The network policy inherited by the process tree. */
+  networkMode: SandboxNetworkMode
+  /** How completely the selected runner enforced the network policy. */
+  networkEnforcement: SandboxEnforcement
   /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }
 ```
 
-当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由[沙箱 seam](sandbox.md)所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见[沙箱 Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
+没有可用后端能强制执行该策略时，`ctx.sandbox` 提供方会抛出、执行器会传播由[沙箱 seam](sandbox.md)所有的 `SANDBOX_UNAVAILABLE` 错误码。后端报告部分网络强制执行时，会在 spawn 前被拒绝。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效文件模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的文件访问重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见[沙箱 Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 ## 后台进程：`ShellProcess`
 

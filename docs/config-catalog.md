@@ -387,7 +387,7 @@ export type Config = LocalConfig
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
-Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-sandbox/src/index.ts)
+Source: [`packages/shell/bash-sandbox/src/index.ts:34`](../packages/shell/bash-sandbox/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -1553,7 +1553,7 @@ export type Config = LocalConfig
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-pwsh-local)
 
-Source: [`packages/shell/pwsh-sandbox/src/index.ts:40`](../packages/shell/pwsh-sandbox/src/index.ts)
+Source: [`packages/shell/pwsh-sandbox/src/index.ts:39`](../packages/shell/pwsh-sandbox/src/index.ts)
 
 <a id="deepseek-aidsh-repeat-tool-reminder"></a>
 
@@ -1646,7 +1646,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:67`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 <a id="deepseek-aidsh-sdk-jsonrpc-server"></a>
 

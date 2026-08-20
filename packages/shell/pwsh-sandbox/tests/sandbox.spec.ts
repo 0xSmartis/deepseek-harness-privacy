@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, RunnerFailureRule, SandboxExecutionPolicy, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -37,7 +37,7 @@ interface ConfineCall {
 
 /** A passthrough wrap: the caller's argv unchanged, asserted full — commands run unconfined, deterministically. */
 const passthrough = (argv: readonly string[]): ConfinedArgv =>
-  ({ argv: [...argv], enforcement: 'full', denialSignatures: ['access is denied', 'access to the path'], runnerFailureRules: [] })
+  ({ argv: [...argv], enforcement: 'full', networkEnforcement: 'full', denialSignatures: ['access is denied', 'access to the path'], runnerFailureRules: [] })
 
 /** A subprocess service whose spawn() throws SYNCHRONOUSLY — the paths the async service never produces. */
 function throwingSubprocessRuntime(error: unknown): new (ctx: Context) => Service {
@@ -55,7 +55,7 @@ function throwingSubprocessRuntime(error: unknown): new (ctx: Context) => Servic
 async function setup(
   behavior: (argv: readonly string[], policy: SandboxPolicy) => ConfinedArgv = passthrough,
   subprocess: new (ctx: Context) => Service = LocalSubprocessRuntime,
-): Promise<{ executor: SandboxPwshExecutor; calls: ConfineCall[] }> {
+): Promise<{ ctx: Context; executor: SandboxPwshExecutor; calls: ConfineCall[] }> {
   const calls: ConfineCall[] = []
   class FakeSandboxProvider extends SandboxProvider {
     confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
@@ -71,7 +71,7 @@ async function setup(
     ctx.subprocess.internals = { spillDir }
   }
   await ctx.plugin(SandboxPwshExecutor, { graceMs: 200 })
-  return { executor: ctx.shell as SandboxPwshExecutor, calls }
+  return { ctx, executor: ctx.shell as SandboxPwshExecutor, calls }
 }
 
 describe('helpers (pure)', () => {
@@ -165,7 +165,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     rmSync(spillDir, { recursive: true, force: true })
   })
 
-  const RO: SandboxExecutionPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
+  const RO: SandboxExecutionPolicy = { mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/ws' }
 
   it('wraps the exact pwsh argv through ctx.sandbox with the per-call policy', async () => {
     const { executor, calls } = await setup()
@@ -178,7 +178,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     expect(call?.argv[0]).toMatch(/pwsh(\.exe)?$/u)
     expect(call?.argv).toContain('-NonInteractive')
     expect(call?.argv.at(-1)).toContain('echo wrapped')
-    expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    expect(result.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: false, enforcement: 'full', networkEnforcement: 'full' })
   }, 30_000)
 
   it('advertises the deployment default mode and stamps the deployment policy when none rides the request', async () => {
@@ -189,12 +189,18 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     expect(calls[0]?.policy.mode).toBe('workspace-write')
   }, 30_000)
 
-  it('danger-full-access bypasses confine entirely and stamps full-access facts', async () => {
+  it('danger-full-access bypasses file restrictions while retaining the independent network wrap', async () => {
     const { executor, calls } = await setup()
-    const result = await executor.run(executor.resolve({ command: 'echo full', sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: '/ws' } }))
+    const result = await executor.run(executor.resolve({ command: 'echo full', sandboxPolicy: { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: '/ws' } }))
     expect(result.exitCode).toBe(0)
-    expect(calls).toHaveLength(0)
-    expect(result.sandbox).toEqual({ mode: 'danger-full-access', denied: false })
+    expect(calls).toHaveLength(1)
+    expect(result.sandbox).toEqual({
+      mode: 'danger-full-access',
+      networkMode: 'deny-all',
+      denied: false,
+      enforcement: 'full',
+      networkEnforcement: 'full',
+    })
   }, 30_000)
 
   it('an aborted caller signal outranks runner-spawn attribution', async () => {
@@ -202,7 +208,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     controller.abort('caller-cancel')
     const { executor } = await setup(() => ({
       argv: ['definitely-not-a-real-runner', '--', 'pwsh'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [],
     }))
@@ -220,13 +226,13 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
       sandboxPolicy: RO,
     }))
     expect(result.exitCode).not.toBe(0)
-    expect(result.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(result.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
   }, 30_000)
 
   it('a runner launch refusal fails closed with SANDBOX_UNAVAILABLE, never unconfined', async () => {
     const { executor } = await setup(() => ({
       argv: ['definitely-not-a-real-runner', '--', 'pwsh'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [{ fatalSignatures: ['fake-runner: '] }],
     }))
@@ -234,11 +240,27 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
       .rejects.toThrow(SandboxUnavailableError)
   }, 30_000)
 
+  it('refuses run() and start() before spawn when network enforcement is partial', async () => {
+    const { ctx, executor } = await setup(argv => ({
+      argv: [...argv],
+      enforcement: 'partial',
+      networkEnforcement: 'partial',
+      denialSignatures: [],
+      runnerFailureRules: [],
+    }))
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn')
+    const spec = executor.resolve({ command: 'echo never', sandboxPolicy: RO })
+
+    await expect(executor.run(spec)).rejects.toThrow(SandboxUnavailableError)
+    expect(() => executor.start(spec)).toThrow(SandboxUnavailableError)
+    expect(spawn).not.toHaveBeenCalled()
+  }, 30_000)
+
   it('a SYNCHRONOUS attributable spawn rejection in run() fails closed, an unattributable one rethrows', async () => {
     const attributable = Object.assign(new Error('sync-enoent'), { code: 'ENOENT', syscall: 'spawn node', path: 'node' })
     const { executor: closed } = await setup(() => ({
       argv: ['node', '--', 'pwsh'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [{ fatalSignatures: ['fake-runner: '] }],
     }), throwingSubprocessRuntime(attributable))
@@ -255,7 +277,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     const attributable = Object.assign(new Error('sync-enoent-start'), { code: 'ENOENT', syscall: 'spawn node', path: 'node' })
     const { executor: closed } = await setup(() => ({
       argv: ['node', '--', 'pwsh'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [{ fatalSignatures: ['fake-runner: '] }],
     }), throwingSubprocessRuntime(attributable))
@@ -271,7 +293,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
   it('a runner that REFUSES at runtime (fatal signature, nonzero exit) fails closed too', async () => {
     const { executor } = await setup(() => ({
       argv: [process.execPath, '-e', 'console.error(\'fake-runner: profile refused\'); process.exit(127)', '--'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [{ fatalSignatures: ['fake-runner: '] }],
     }))
@@ -283,7 +305,7 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     const { executor } = await setup()
     const clean = executor.start(executor.resolve({ command: 'echo background-ok', sandboxPolicy: RO }))
     await clean.done
-    expect(clean.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    expect(clean.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: false, enforcement: 'full', networkEnforcement: 'full' })
   }, 30_000)
 
   // POSIX-only denial device (mode-0555 scratch); win32 real-sandbox denial
@@ -295,32 +317,38 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
       sandboxPolicy: RO,
     }))
     await denied.done
-    expect(denied.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(denied.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
   }, 30_000)
 
   it('background spawn rejections settle as runnerFailed facts', async () => {
     const { executor } = await setup(() => ({
       argv: ['definitely-not-a-real-runner', '--', 'pwsh'],
-      enforcement: 'full',
+      enforcement: 'full', networkEnforcement: 'full',
       denialSignatures: [],
       runnerFailureRules: [{ fatalSignatures: ['fake-runner: '] }],
     }))
     const proc = executor.start(executor.resolve({ command: 'echo never', sandboxPolicy: RO }))
     await proc.done
-    expect(proc.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full', runnerFailed: true })
+    expect(proc.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: false, enforcement: 'full', networkEnforcement: 'full', runnerFailed: true })
     // The failure note surfaces through the read path.
     const read = proc.readOutput()
     expect(read.delta).toContain('spawn failed')
   }, 30_000)
 
-  it('danger-full-access background runs bypass confine and carry no facts', async () => {
+  it('danger-full-access background runs retain network confinement and carry its facts', async () => {
     const { executor, calls } = await setup()
     const proc = executor.start(executor.resolve({
       command: 'echo full-bg',
-      sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: '/ws' },
+      sandboxPolicy: { mode: 'danger-full-access', networkMode: 'deny-all', workspaceRoot: '/ws' },
     }))
     await proc.done
-    expect(calls).toHaveLength(0)
-    expect(proc.sandbox).toBeUndefined()
+    expect(calls).toHaveLength(1)
+    expect(proc.sandbox).toEqual({
+      mode: 'danger-full-access',
+      networkMode: 'deny-all',
+      denied: false,
+      enforcement: 'full',
+      networkEnforcement: 'full',
+    })
   }, 30_000)
 })

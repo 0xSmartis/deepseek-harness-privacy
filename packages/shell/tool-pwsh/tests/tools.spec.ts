@@ -187,6 +187,8 @@ class ConfiningFakeBash extends ShellExecutor {
     return runResult('ok\n', {
       sandbox: {
         mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        networkMode: spec.sandboxPolicy?.networkMode ?? 'deny-all',
+        networkEnforcement: 'full',
         denied: false,
         ...spec.command === 'without optional sandbox facts'
           ? {}
@@ -511,6 +513,7 @@ describe('per-call sandbox policy resolution', () => {
     // the calling session's identity rides along for backend per-session state.
     expect(bash.requests[0]?.sandboxPolicy).toEqual({
       mode: 'read-only',
+      networkMode: 'deny-all',
       workspaceRoot: resolvePath(realpathSync.native(sessionCwd)),
       sessionId: 'policy-session',
     })
@@ -521,6 +524,7 @@ describe('per-call sandbox policy resolution', () => {
     await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' })
     expect(bash.requests[0]?.sandboxPolicy).toEqual({
       mode: 'read-only',
+      networkMode: 'deny-all',
       workspaceRoot: resolvePath(realpathSync.native(process.cwd())),
     })
 
@@ -682,7 +686,7 @@ describe('sandbox escalation through ctx.approval', () => {
     if (result.isError) throw new Error('expected foreground pwsh success')
     expect(result.value).toMatchObject({
       kind: 'foreground',
-      sandbox: { mode: 'read-only', denied: false },
+      sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: false },
     })
     expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('enforcement')
     expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('runnerFailed')
@@ -951,12 +955,15 @@ describe('renderPwshResult sandbox markers', () => {
   }
 
   it('a denied run reports the denial marker before the exit marker', () => {
-    expect(renderPwshResult({ ...base, exitCode: 2, sandbox: { mode: 'read-only', denied: true } }))
+    expect(renderPwshResult({ ...base, exitCode: 2, sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true } }))
       .toBe('out\n[sandbox: file access denied under read-only mode]\n[exit code: 2]')
   })
 
   it('hints only when the composition advertises escalation', () => {
-    const denied = { ...base, sandbox: { mode: 'read-only' as const, denied: true } }
+    const denied = {
+      ...base,
+      sandbox: { mode: 'read-only' as const, networkMode: 'deny-all' as const, networkEnforcement: 'full' as const, denied: true },
+    }
     expect(renderPwshResult(denied, ['workspace-write'])).toBe(
       'out\n[sandbox: file access denied under read-only mode]\n'
       + '[sandbox: escalation available — retry this exact command once with sandbox_permissions '
@@ -965,7 +972,7 @@ describe('renderPwshResult sandbox markers', () => {
   })
 
   it('a confined run without a denial adds no sandbox marker', () => {
-    expect(renderPwshResult({ ...base, sandbox: { mode: 'read-only', denied: false } })).toBe('out\n')
+    expect(renderPwshResult({ ...base, sandbox: { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: false } })).toBe('out\n')
   })
 })
 
@@ -1007,14 +1014,14 @@ describe('renderPwshProcessRead', () => {
   })
 
   it('appends the runner-failed notice (denial outranked)', () => {
-    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true, runnerFailed: true }))
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true, runnerFailed: true }))
       .toBe('x\n[sandbox: the sandbox runner itself failed under read-only mode — the command did not run; this is a sandbox problem, not a command failure]')
   })
 
   it('appends the denial marker and hints only when escalation is advertised', () => {
-    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true }))
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true }))
       .toBe('x\n[sandbox: file access denied under read-only mode]')
-    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true }, ['workspace-write']))
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', networkMode: 'deny-all', networkEnforcement: 'full', denied: true }, ['workspace-write']))
       .toBe('x\n[sandbox: file access denied under read-only mode]\n'
         + '[sandbox: escalation available — retry this exact command once with sandbox_permissions '
         + '(the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')

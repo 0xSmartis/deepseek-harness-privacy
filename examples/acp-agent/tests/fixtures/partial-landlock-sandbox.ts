@@ -16,7 +16,7 @@ export default class PartialLandlockSandboxProvider extends SandboxProvider {
     if (process.env[MISSING_RUNNER_ENV] === '1') {
       return {
         argv: [join(policy.workspaceRoot, '.dsh-missing-sandbox-runner'), ...argv],
-        enforcement: 'full',
+        enforcement: 'full', networkEnforcement: 'full',
         denialSignatures: ['permission denied'],
         runnerFailureRules: [{ fatalSignatures: ['snapshot-runner: '] }],
       }
@@ -29,7 +29,7 @@ export default class PartialLandlockSandboxProvider extends SandboxProvider {
         'partial-landlock-run',
         ...argv,
       ],
-      enforcement: 'partial',
+      enforcement: 'partial', networkEnforcement: 'full',
       denialSignatures: ['permission denied'],
       runnerFailureRules: [{
         allowedExitCodes: [125],

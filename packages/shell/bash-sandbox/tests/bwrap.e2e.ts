@@ -21,7 +21,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
  * intentional because bwrap replaces `/tmp`, which cannot prove the workspace-root boundary.
  */
 
-const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })
+const probe = spawnSync('bwrap', [...bwrapProfileArgs({ mode: 'read-only', networkMode: 'deny-all', workspaceRoot: '/' }), '--', 'true'], { timeout: 5_000, stdio: 'ignore' })
 const bwrapUsable = probe.status === 0
 
 let ctx: Context | undefined
@@ -54,7 +54,7 @@ describe.skipIf(!bwrapUsable)('bash-sandbox: real bwrap confinement through ctx.
     const bash = await sandboxedBash(workdir, 'read-only')
     const result = await bash.run(bash.resolve({ command: `echo hi > ${workdir}/denied.txt` }))
     expect(result.exitCode).not.toBe(0)
-    expect(result.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(result.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
     expect(existsSync(join(workdir, 'denied.txt'))).toBe(false)
   })
 
@@ -65,12 +65,12 @@ describe.skipIf(!bwrapUsable)('bash-sandbox: real bwrap confinement through ctx.
 
     const inside = await bash.run(bash.resolve({ command: `printf bwrap-ok > ${workdir}/allowed.txt` }))
     expect(inside.exitCode).toBe(0)
-    expect(inside.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
+    expect(inside.sandbox).toEqual({ mode: 'workspace-write', networkMode: 'deny-all', denied: false, enforcement: 'full', networkEnforcement: 'full' })
     expect(readFileSync(join(workdir, 'allowed.txt'), 'utf8')).toBe('bwrap-ok')
 
     const denied = await bash.run(bash.resolve({ command: `echo hi > ${outside}/denied.txt` }))
     expect(denied.exitCode).not.toBe(0)
-    expect(denied.sandbox).toEqual({ mode: 'workspace-write', denied: true, enforcement: 'full' })
+    expect(denied.sandbox).toEqual({ mode: 'workspace-write', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
     expect(existsSync(join(outside, 'denied.txt'))).toBe(false)
   })
 
@@ -79,7 +79,7 @@ describe.skipIf(!bwrapUsable)('bash-sandbox: real bwrap confinement through ctx.
     const bash = await sandboxedBash(workdir, 'read-only')
     const task = bash.start(bash.resolve({ command: `echo hi > ${workdir}/bg-denied.txt` }))
     await task.done
-    expect(task.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(task.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
     expect(existsSync(join(workdir, 'bg-denied.txt'))).toBe(false)
   })
 
@@ -89,11 +89,11 @@ describe.skipIf(!bwrapUsable)('bash-sandbox: real bwrap confinement through ctx.
     const command = `printf escalated > ${workdir}/escalated.txt`
     const strict = await bash.run(bash.resolve({ command }))
     expect(strict.exitCode).not.toBe(0)
-    expect(strict.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(strict.sandbox).toEqual({ mode: 'read-only', networkMode: 'deny-all', denied: true, enforcement: 'full', networkEnforcement: 'full' })
     expect(existsSync(join(workdir, 'escalated.txt'))).toBe(false)
-    const retried = await bash.run(bash.resolve({ command, sandboxPolicy: { mode: 'workspace-write', workspaceRoot: workdir } }))
+    const retried = await bash.run(bash.resolve({ command, sandboxPolicy: { mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: workdir } }))
     expect(retried.exitCode).toBe(0)
-    expect(retried.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
+    expect(retried.sandbox).toEqual({ mode: 'workspace-write', networkMode: 'deny-all', denied: false, enforcement: 'full', networkEnforcement: 'full' })
     expect(readFileSync(join(workdir, 'escalated.txt'), 'utf8')).toBe('escalated')
   })
 })

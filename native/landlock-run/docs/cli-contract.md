@@ -5,12 +5,13 @@ This file pins the launcher's externally observable behavior — the cross-repo 
 ## Invocation grammar
 
 ```text
-landlock-run [--ro <path>]... [--rw <path>]... -- <argv>...
+landlock-run [--ro <path>]... [--rw <path>]... [--deny-network] -- <argv>...
 landlock-run --probe
 ```
 
 - `--ro <path>`: grant read + execute beneath `<path>`.
 - `--rw <path>`: grant full filesystem access beneath `<path>` (every access the negotiated kernel ABI can govern).
+- `--deny-network`: reject IP socket creation and `io_uring_setup` while preserving Unix-domain sockets. The seccomp filter is independent of the filesystem grants.
 - Everything not granted is denied — Landlock rulesets are allow-lists.
 - A grant on a non-directory keeps only its file-compatible access bits (this is how a `--rw /dev/null` grant works).
 - `--`: mandatory separator; everything after it is the command argv, exec'd via `execvp` with the launcher's environment unchanged.
@@ -31,4 +32,4 @@ landlock-run --probe
 
 ## Confinement semantics
 
-The launcher sets `no_new_privs`, installs the ruleset on itself, and `exec`s the command; the ruleset is inherited across `execve`, so every descendant process is equally confined. The ruleset governs the filesystem accesses of the kernel's negotiated Landlock ABI (up to ABI 5); accesses newer than the running ABI are not governed and are the difference between `full` and `partial`.
+The launcher sets `no_new_privs`, installs the selected restrictions on itself, and `exec`s the command. Landlock filesystem rules and the optional seccomp network filter are inherited across `fork`, `clone`, and `execve`, so every descendant process is equally confined. The filesystem ruleset governs accesses in the kernel's negotiated Landlock ABI (up to ABI 5); accesses newer than the running ABI are not governed and are the difference between `full` and `partial`. Network denial supports Linux x64 and arm64, rejects every socket family except `AF_UNIX`, and rejects `io_uring_setup` so asynchronous socket operations cannot bypass the filter.

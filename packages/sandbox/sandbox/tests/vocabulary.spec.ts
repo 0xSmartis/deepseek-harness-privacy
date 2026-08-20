@@ -17,10 +17,10 @@ describe('SandboxUnavailableError', () => {
     expect(error).toBeInstanceOf(Error)
   })
 
-  it('names the refused mode and the operator escape hatches in its message', () => {
+  it('names the refused file mode and the fail-closed network policy in its message', () => {
     const error = new SandboxUnavailableError('workspace-write')
     expect(error.message).toContain('"workspace-write"')
-    expect(error.message).toContain('danger-full-access')
+    expect(error.message).toContain('file and network restrictions')
     expect(error.message).not.toContain('Runner failure')
   })
 

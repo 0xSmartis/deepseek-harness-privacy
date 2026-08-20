@@ -13,7 +13,6 @@ import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } fr
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type {
   ConfinedArgv,
-  ConfinedSandboxMode,
   RunnerFailureRule,
   SandboxEnforcement,
   SandboxExecutionPolicy,
@@ -53,11 +52,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Per-process confinement facts retained until settlement. Providers may
    * vary enforcement and diagnostic dialect between overlapping calls, so a
    * shared latest-wrap value would classify a process against the wrong facts.
-   * Unconfined processes have no entry.
    */
   private readonly processFacts = new Map<ShellProcess, {
-    mode: ConfinedSandboxMode
+    mode: SandboxMode
+    networkMode: SandboxExecutionPolicy['networkMode']
     enforcement: SandboxEnforcement
+    networkEnforcement: SandboxEnforcement
     denialSignatures: readonly string[]
     runnerFailureRules: readonly RunnerFailureRule[]
     runnerProgram: string | undefined
@@ -87,12 +87,9 @@ export class SandboxBashExecutor extends LocalBashExecutor {
 
   override async run(spec: ShellExecSpec): Promise<ShellRunResult> {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
-    const { mode } = policy
-    if (mode === 'danger-full-access') {
-      const result = await super.run(spec)
-      return { ...result, sandbox: { mode, denied: false } }
-    }
+    const { mode, networkMode } = policy
     const confined = this.confine(spec.command, { ...policy, mode })
+    this.assertNetworkEnforcement(mode, confined)
     let result: ShellRunResult
     try {
       result = await this.runArgv(spec, confined.argv)
@@ -110,16 +107,25 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     if (runnerFailure !== undefined) {
       throw new SandboxUnavailableError(mode, runnerFailure.detail)
     }
-    return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
+    return {
+      ...result,
+      sandbox: {
+        mode,
+        denied: classifyDenial(result, confined.denialSignatures),
+        enforcement: confined.enforcement,
+        networkMode,
+        networkEnforcement: confined.networkEnforcement,
+      },
+    }
   }
 
   override start(spec: ShellExecSpec): ShellProcess {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
-    const { mode } = policy
-    if (mode === 'danger-full-access') return super.start(spec)
+    const { mode, networkMode } = policy
     // Once startArgv returns, install facts synchronously; promise settlement
     // cannot run before start() returns.
     const confined = this.confine(spec.command, { ...policy, mode })
+    this.assertNetworkEnforcement(mode, confined)
     let proc: ShellProcess
     try {
       proc = this.startArgv(spec, confined.argv)
@@ -131,10 +137,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       }
       throw error
     }
-    const { enforcement, denialSignatures, runnerFailureRules } = confined
+    const { enforcement, networkEnforcement, denialSignatures, runnerFailureRules } = confined
     this.processFacts.set(proc, {
       mode,
+      networkMode,
       enforcement,
+      networkEnforcement,
       denialSignatures,
       runnerFailureRules,
       runnerProgram: confined.argv[0],
@@ -160,6 +168,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
         mode: facts.mode,
         denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
         enforcement: facts.enforcement,
+        networkMode: facts.networkMode,
+        networkEnforcement: facts.networkEnforcement,
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
@@ -176,6 +186,13 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    */
   private confine(command: string, policy: SandboxPolicy): ConfinedArgv {
     return this.ctx.sandbox.confine(['bash', '-c', command], policy)
+  }
+
+  /** Refuse to spawn when the selected backend cannot fully enforce the promised network policy. */
+  private assertNetworkEnforcement(mode: SandboxMode, confined: ConfinedArgv): void {
+    if (confined.networkEnforcement !== 'full') {
+      throw new SandboxUnavailableError(mode, 'the selected backend cannot fully enforce child-network denial')
+    }
   }
 }
 

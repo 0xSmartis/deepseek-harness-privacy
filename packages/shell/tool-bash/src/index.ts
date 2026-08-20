@@ -174,6 +174,8 @@ function canonicalBashResult(result: ShellRunResult) {
       sandbox: {
         mode: result.sandbox.mode,
         denied: result.sandbox.denied,
+        networkMode: result.sandbox.networkMode,
+        networkEnforcement: result.sandbox.networkEnforcement,
         ...result.sandbox.enforcement !== undefined ? { enforcement: result.sandbox.enforcement } : {},
         ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
       },
@@ -312,6 +314,8 @@ export function apply(ctx: Context, config: Config = {}): void {
                 properties: {
                   mode: { type: 'string', required: true },
                   denied: { type: 'boolean', required: true },
+                  networkMode: { type: 'string', required: true },
+                  networkEnforcement: { type: 'string', required: true },
                   enforcement: { type: 'string' },
                   runnerFailed: { type: 'boolean' },
                 },

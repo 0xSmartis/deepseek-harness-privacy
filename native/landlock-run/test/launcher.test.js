@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import {
   LAUNCHER_FAILURE_EXIT,
   grantArgs,
@@ -58,6 +59,7 @@ const run = (args, options = {}) => spawnSync(launcher, args, { encoding: 'utf8'
 
   for (const args of [
     ['--probe', '--ro', '/'],
+    ['--probe', '--deny-network'],
     ['--probe', '--'],
     ['--probe', '--probe'],
   ]) {
@@ -66,6 +68,21 @@ const run = (args, options = {}) => spawnSync(launcher, args, { encoding: 'utf8'
     assert.match(probeWithExtras.stderr, /--probe takes no other arguments/);
   }
 }
+
+const connectArgv = (host, port) => [
+  process.execPath,
+  '-e',
+  `const socket = require('node:net').connect(${port}, ${JSON.stringify(host)}); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(17)); setTimeout(() => process.exit(18), 1000)`,
+];
+
+const descendantConnectArgv = (host, port) => {
+  const child = connectArgv(host, port);
+  return [
+    process.execPath,
+    '-e',
+    `const { spawnSync } = require('node:child_process'); const result = spawnSync(${JSON.stringify(child[0])}, ${JSON.stringify(child.slice(1))}, { stdio: 'inherit' }); process.exit(result.status ?? 19)`,
+  ];
+};
 
 // --- probe: the functional availability signal ---
 const enforcement = probe(launcher);
@@ -77,6 +94,54 @@ if (enforcement === 'unusable') {
   }
   console.log('launcher.test: SKIP enforcement half — kernel does not enforce Landlock');
   process.exit(0);
+}
+
+// --- network-only confinement: deny IP sockets across descendants while preserving files and Unix IPC ---
+{
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'nalr-network-test-'));
+  const marker = path.join(work, 'file-write.txt');
+  const fileWrite = run([...grantArgs({ denyNetwork: true }), '--', process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ok')`]);
+  assert.equal(fileWrite.status, 0, fileWrite.stderr);
+  assert.equal(fs.readFileSync(marker, 'utf8'), 'ok');
+
+  const tcpServer = createServer(socket => socket.destroy());
+  await new Promise((resolve, reject) => {
+    tcpServer.once('error', reject);
+    tcpServer.listen(0, '127.0.0.1', resolve);
+  });
+  const socketPath = path.join(work, 'local-ipc.sock');
+  const ipcServer = createServer(socket => socket.destroy());
+  await new Promise((resolve, reject) => {
+    ipcServer.once('error', reject);
+    ipcServer.listen(socketPath, resolve);
+  });
+  try {
+    const address = tcpServer.address();
+    assert.ok(address !== null && typeof address !== 'string');
+    for (const argv of [
+      connectArgv('127.0.0.1', address.port),
+      descendantConnectArgv('127.0.0.1', address.port),
+      connectArgv('198.51.100.1', 443),
+    ]) {
+      const denied = run([...grantArgs({ denyNetwork: true }), '--', ...argv], { timeout: 5_000 });
+      assert.equal(denied.status, 17, denied.stderr);
+    }
+
+    const unix = run([
+      ...grantArgs({ denyNetwork: true }),
+      '--',
+      process.execPath,
+      '-e',
+      `const socket = require('node:net').connect(${JSON.stringify(socketPath)}); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(17)); setTimeout(() => process.exit(18), 1000)`,
+    ]);
+    assert.equal(unix.status, 0, unix.stderr);
+  } finally {
+    await Promise.all([
+      new Promise(resolve => tcpServer.close(resolve)),
+      new Promise(resolve => ipcServer.close(resolve)),
+    ]);
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 const expectedNotice = enforcement === 'partial' ? `${PARTIAL_NOTICE}\n` : '';
 {

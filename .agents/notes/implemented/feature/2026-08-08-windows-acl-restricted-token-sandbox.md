@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-08-windows-acl-restricted-token-sandbox.zh.md)
 
+Network-policy amendment: the [independent child-network decision](../architecture/2026-08-20-independent-child-network-policy.md) supersedes this note's statements that network access remains outside the process policy. The ACL runner still has no IP-network mechanism, so it now reports `networkEnforcement: 'partial'`; shell and terminal consumers fail closed before spawn.
+
 ## Problem
 
 The original [sandbox decision](2026-07-06-sandbox.md) left `PLATFORM_CHAINS.win32` empty, so shipped Windows profiles degraded to danger-full-access because no confining executor existed. The win32 rung must govern the two file-effect modes in the sandbox vocabulary — `read-only` (no explicit writable root) and `workspace-write` (writes under the workspace root plus a backend-defined temp area) — while reporting any effects its mechanism cannot govern; reads, network, and process visibility remain outside this vocabulary.

@@ -8,7 +8,9 @@ The executor inherits [`@deepseek-ai/dsh-pwsh-local`](../pwsh-local/)'s process 
 
 ## Behavior
 
-- `danger-full-access`: commands run through the local executor unchanged; results carry `sandbox: { mode, denied: false }`.
+- `danger-full-access`: file access is unrestricted, but commands still pass through `ctx.sandbox` for inherited IP-network denial.
+
+- Every mode carries `networkMode: 'deny-all'`: IP sockets are denied while Unix-domain IPC remains available. Results report independent `enforcement` and `networkEnforcement` facts, and this executor refuses to spawn unless network enforcement is `full`.
 - Confined modes (`read-only`, `workspace-write`): the pwsh argv is wrapped by `ctx.sandbox.confine()`; runner-launch refusal fails closed with `SANDBOX_UNAVAILABLE` (foreground throw, background `runnerFailed` fact), and a denied write classifies against the selected backend's `denialSignatures` into `sandbox.denied`.
 
 ## Model Experience

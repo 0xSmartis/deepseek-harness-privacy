@@ -8,7 +8,8 @@
 
 ## 行为
 
-- `danger-full-access`：命令经本地执行器原样运行；结果携带 `sandbox: { mode, denied: false }`。
+- `danger-full-access`：文件访问不受限，但命令仍会经过 `ctx.sandbox`，以继承式拒绝 IP 网络。
+- 所有模式都携带 `networkMode: 'deny-all'`：拒绝 IP 套接字，同时保留 Unix 域 IPC。结果分别报告 `enforcement` 与 `networkEnforcement`，且网络强制执行不是 `full` 时，该执行器会拒绝 spawn。
 - 受限模式（`read-only`、`workspace-write`）：pwsh argv 由 `ctx.sandbox.confine()` 包装；runner 启动失败按 fail-closed 抛 `SANDBOX_UNAVAILABLE`（前台抛错、后台记 `runnerFailed` 事实），被拒绝的写按所选后端的 `denialSignatures` 分类为 `sandbox.denied`。
 
 ## 模型体验

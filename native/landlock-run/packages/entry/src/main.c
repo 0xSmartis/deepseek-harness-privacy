@@ -12,13 +12,15 @@
  *
  * CLI contract (mirrors the `bwrap` runner argv shape the executor wraps):
  *
- *   landlock-run [--ro <path>]... [--rw <path>]... -- <argv>...
+ *   landlock-run [--ro <path>]... [--rw <path>]... [--deny-network] -- <argv>...
  *   landlock-run --probe
  *
  * `--ro` grants read+execute beneath the path; `--rw` grants full filesystem
  * access beneath the path. Everything else is denied (Landlock is an
- * allow-list). `--probe` builds a maximal ruleset and reports whether the
- * running kernel actually enforces it — the executor's functional probe.
+ * allow-list). `--deny-network` installs an inherited seccomp filter that
+ * permits Unix-domain IPC but rejects other sockets and io_uring setup.
+ * `--probe` builds both restrictions and reports whether the running kernel
+ * actually enforces them — the executor's functional probe.
  *
  * Fail-closed: if the ruleset cannot be created or is NOT enforced by the
  * kernel, the launcher exits non-zero WITHOUT exec'ing the command. A partial
@@ -38,11 +40,13 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -104,6 +108,53 @@ struct landlock_path_beneath_attr {
 #define __NR_landlock_restrict_self 446
 #endif
 
+/* Minimal classic-BPF and seccomp UAPI used by PR_SET_SECCOMP. */
+struct sock_filter {
+  uint16_t code;
+  uint8_t jt;
+  uint8_t jf;
+  uint32_t k;
+};
+
+struct sock_fprog {
+  uint16_t len;
+  struct sock_filter *filter;
+};
+
+struct seccomp_data {
+  int32_t nr;
+  uint32_t arch;
+  uint64_t instruction_pointer;
+  uint64_t args[6];
+};
+
+#define BPF_LD 0x00
+#define BPF_W 0x00
+#define BPF_ABS 0x20
+#define BPF_JMP 0x05
+#define BPF_JEQ 0x10
+#define BPF_K 0x00
+#define BPF_RET 0x06
+#define BPF_STMT(code_, k_) ((struct sock_filter){ (uint16_t)(code_), 0, 0, (uint32_t)(k_) })
+#define BPF_JUMP(code_, k_, jt_, jf_) ((struct sock_filter){ (uint16_t)(code_), (uint8_t)(jt_), (uint8_t)(jf_), (uint32_t)(k_) })
+
+#define SECCOMP_MODE_FILTER 2
+#define SECCOMP_RET_KILL_PROCESS UINT32_C(0x80000000)
+#define SECCOMP_RET_ERRNO UINT32_C(0x00050000)
+#define SECCOMP_RET_ALLOW UINT32_C(0x7fff0000)
+
+#if defined(__x86_64__)
+#define AUDIT_ARCH_NATIVE UINT32_C(0xc000003e)
+#elif defined(__aarch64__)
+#define AUDIT_ARCH_NATIVE UINT32_C(0xc00000b7)
+#else
+#error "landlock-run seccomp network policy supports x86_64 and aarch64 only"
+#endif
+
+#ifndef __NR_io_uring_setup
+#define __NR_io_uring_setup 425
+#endif
+
 /*
  * Every fatal launcher error prints `landlock-run: <message>` to stderr
  * and exits 125 — a code the wrapped command itself is unlikely to use, so
@@ -132,6 +183,7 @@ static int fail_usage(const char *message, const char *detail) {
 /* Parsed CLI: either a probe, or grants plus the command argv after `--`. */
 struct cli {
   int probe;
+  int deny_network;
   const char **ro;
   size_t ro_count;
   const char **rw;
@@ -157,6 +209,9 @@ static int parse(int argc, char **argv, struct cli *cli) {
         return fail_usage("--probe takes no other arguments", NULL);
       }
       cli->probe = 1;
+      index += 1;
+    } else if (strcmp(arg, "--deny-network") == 0) {
+      cli->deny_network = 1;
       index += 1;
     } else if (strcmp(arg, "--ro") == 0 || strcmp(arg, "--rw") == 0) {
       if (index + 1 >= argc) {
@@ -227,7 +282,7 @@ static int add_rule(int ruleset_fd, const char *path, uint64_t access) {
  * the sandbox). On success `*partial` reports whether the kernel governs
  * only a subset of MAX_ABI's accesses. Returns 0, else the exit code.
  */
-static int restrict_self(const struct cli *cli, int *partial) {
+static int restrict_filesystem(const struct cli *cli, int *partial) {
   long abi = syscall(__NR_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 0) {
     /* ENOSYS: kernel built without Landlock; EOPNOTSUPP: built but disabled.
@@ -251,13 +306,46 @@ static int restrict_self(const struct cli *cli, int *partial) {
     if (code != 0) return code;
   }
 
-  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-    return fail("landlock ruleset error", strerror(errno));
-  }
   if (syscall(__NR_landlock_restrict_self, ruleset_fd, 0) != 0) {
     return fail("landlock ruleset error", strerror(errno));
   }
   close(ruleset_fd);
+  return 0;
+}
+
+/*
+ * Deny every socket family except AF_UNIX, and deny io_uring setup so its
+ * socket/connect operations cannot bypass syscall filtering. The filter is
+ * inherited across fork/clone and exec. An architecture mismatch kills the
+ * process instead of interpreting syscall numbers under the wrong table.
+ */
+static int restrict_network(void) {
+  struct sock_filter filter[] = {
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_NATIVE, 1, 0),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 4),
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 1, 0),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socketpair, 0, 4),
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 1, 0),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+  };
+  struct sock_fprog program = {
+    .len = (uint16_t)(sizeof filter / sizeof filter[0]),
+    .filter = filter,
+  };
+  if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0) {
+    return fail("seccomp network policy error", strerror(errno));
+  }
   return 0;
 }
 
@@ -274,16 +362,29 @@ int main(int argc, char **argv) {
      * report line is part of the launcher CLI contract — the executor reads
      * enforcement completeness from it. */
     static const char *probe_root = "/";
-    struct cli probe = { .ro = &probe_root, .ro_count = 1 };
+    struct cli probe = { .deny_network = 1, .ro = &probe_root, .ro_count = 1 };
     int partial = 0;
-    code = restrict_self(&probe, &partial);
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+      return fail("sandbox setup error", strerror(errno));
+    }
+    code = restrict_filesystem(&probe, &partial);
+    if (code == 0) code = restrict_network();
     if (code != 0) return code;
     printf("landlock: %s\n", partial ? "partially enforced (older ABI)" : "fully enforced");
     return 0;
   }
 
   int partial = 0;
-  code = restrict_self(&cli, &partial);
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+    return fail("sandbox setup error", strerror(errno));
+  }
+  /* A network-only invocation intentionally skips filesystem restriction.
+   * The legacy empty policy (`-- <argv>`) retains Landlock's deny-all file
+   * behavior rather than becoming an unconfined compatibility path. */
+  if (cli.ro_count > 0 || cli.rw_count > 0 || !cli.deny_network) {
+    code = restrict_filesystem(&cli, &partial);
+  }
+  if (code == 0 && cli.deny_network) code = restrict_network();
   if (code != 0) return code;
   if (partial) {
     /* Older ABI: some handled accesses are not governed (e.g. truncate

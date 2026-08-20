@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-08-windows-acl-restricted-token-sandbox.md) | 中文
 
+网络策略修订：[独立子进程网络决策](../architecture/2026-08-20-independent-child-network-policy.md)取代了本 Note 中「网络访问不属于进程策略」的陈述。ACL runner 仍没有 IP 网络机制，因此现在报告 `networkEnforcement: 'partial'`；shell 与 terminal 消费方会在 spawn 前失败闭合。
+
 ## 问题
 
 最初的[沙箱决策](2026-07-06-sandbox.md)将 `PLATFORM_CHAINS.win32` 留空，因此交付的 Windows profile 因不存在隔离执行器而退化为 danger-full-access。win32 档必须约束沙箱词汇表中的两种文件效果模式——`read-only`（不显式授予任何可写根目录）与 `workspace-write`（允许写入工作区根目录及后端定义的临时区域）——并报告其机制无法约束的任何效果；读取、网络与进程可见性仍在这套词汇之外。

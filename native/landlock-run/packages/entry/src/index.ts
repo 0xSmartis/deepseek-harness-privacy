@@ -49,6 +49,8 @@ export interface LauncherGrants {
   readonly readOnly?: readonly string[]
   /** Roots granted full filesystem access beneath (the launcher's `--rw`). */
   readonly readWrite?: readonly string[]
+  /** Reject every non-Unix socket in the wrapped process and descendants. */
+  readonly denyNetwork?: boolean
 }
 
 /**
@@ -95,6 +97,7 @@ export function grantArgs(grants: LauncherGrants): string[] {
   return [
     ...(grants.readOnly ?? []).flatMap(root => ['--ro', root]),
     ...(grants.readWrite ?? []).flatMap(root => ['--rw', root]),
+    ...(grants.denyNetwork === true ? ['--deny-network'] : []),
   ]
 }
 

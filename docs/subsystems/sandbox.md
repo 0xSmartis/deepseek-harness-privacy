@@ -2,29 +2,34 @@
 
 English | [中文](sandbox.zh.md)
 
-The process-sandbox seam of [dsh-sandbox](../../packages/sandbox/sandbox) wraps a same-world subprocess argv in a file-effect policy without coupling consumers to a platform runner. [dsh-sandbox-local](../../packages/sandbox/sandbox-local) supplies Linux bwrap/Landlock, macOS Seatbelt, and the Windows ACL restricted-token backend; [dsh-bash-sandbox](../../packages/shell/bash-sandbox) and [dsh-pwsh-sandbox](../../packages/shell/pwsh-sandbox) consume it. Containers, microVMs, and remote execution are sibling implementations of whole capability seams, not providers of `ctx.sandbox`.
+The process-sandbox seam of [dsh-sandbox](../../packages/sandbox/sandbox) wraps a same-world subprocess argv in independent file-effect and child-network policies without coupling consumers to a platform runner. [dsh-sandbox-local](../../packages/sandbox/sandbox-local) supplies Linux bwrap/Landlock, macOS Seatbelt, and the Windows ACL restricted-token backend; [dsh-bash-sandbox](../../packages/shell/bash-sandbox) and [dsh-pwsh-sandbox](../../packages/shell/pwsh-sandbox) consume it. Containers, microVMs, and remote execution are sibling implementations of whole capability seams, not providers of `ctx.sandbox`.
 
 Source: [`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## Modes and enforcement
 
-`SandboxMode` governs filesystem effects only. `read-only` asks the backend to deny writes — the POSIX runners additionally grant the `/dev/null` sink their shells require, while the Windows ACL runner grants no explicit writable root and reports partial enforcement for its ambient ACL gaps; `workspace-write` permits writes under the workspace root and the backend's promised temp area; `danger-full-access` bypasses confinement. Network and process visibility are outside this vocabulary.
+`SandboxMode` governs filesystem effects only. `read-only` asks the backend to deny writes — the POSIX runners additionally grant the `/dev/null` sink their shells require, while the Windows ACL runner grants no explicit writable root and reports partial enforcement for its ambient ACL gaps; `workspace-write` permits writes under the workspace root and the backend's promised temp area; `danger-full-access` bypasses file confinement. Child networking remains independently governed by `SandboxNetworkMode`; the current `deny-all` mode denies Internet-protocol sockets while retaining Unix-domain IPC.
 
 ```ts type-equiv
 /**
  * File-effect policy for confined processes. `read-only` permits only required
  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
- * backend-defined temp area; `danger-full-access` bypasses confinement. Network
- * and process visibility are outside this vocabulary.
+ * backend-defined temp area; `danger-full-access` bypasses file confinement.
+ * Child networking remains independently governed by {@link SandboxNetworkMode}.
  */
 type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
-Only the first two modes can be sent to a provider. A `danger-full-access` consumer spawns its original argv and does not call `ctx.sandbox`.
+`ConfinedSandboxMode` names the two file-confining values for APIs that reason about file widening. It does not narrow provider input: `danger-full-access` still reaches `ctx.sandbox` so the independent network restriction can be applied.
 
 ```ts type-equiv
-/** A confining (non-`danger-full-access`) mode — the modes a {@link SandboxPolicy} can carry. */
+/** A confining file mode. Network policy can still require a runner when the file mode is `danger-full-access`. */
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
+```
+
+```ts type-equiv
+/** Network policy for an agent-controlled process tree. `deny-all` permits local Unix-domain IPC only. */
+type SandboxNetworkMode = 'deny-all'
 ```
 
 Enforcement is a reported fact. `full` means the backend governs every file effect promised by the mode; `partial` means an active backend or older kernel ABI governs only a subset, so consumers that require the absolute promise must reject or surface that distinction. Older Landlock ABIs and the Windows ACL runner's Everyone/hard-link boundaries are current partial cases.
@@ -40,17 +45,19 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## Per-call policy
 
-The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs.
+The complete execution policy is resolved and carried per capability call. File access and child networking are explicit independent fields. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs.
 
 ```ts type-equiv
 /**
- * The complete file-effect policy resolved for one capability call. The root
- * is carried even under modes that do not consume it so callers can resolve
- * policy once before choosing the enforcement path.
+ * The complete file and child-network policy resolved for one capability call.
+ * The root is carried even under modes that do not consume it so callers can
+ * resolve policy once before choosing the enforcement path.
  */
 interface SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: SandboxMode
+  /** Network policy inherited by the process and every descendant. */
+  networkMode: SandboxNetworkMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
   /**
@@ -76,21 +83,16 @@ interface SandboxPolicyRequest {
 }
 ```
 
-Only a confined execution reaches `ctx.sandbox`; its provider policy narrows the mode while retaining the same root. This permits concurrent sessions, consumers, and one-shot escalated retries to ask the same provider for different boundaries without mutating provider state.
+Every local execution reaches `ctx.sandbox`, including `danger-full-access`, because file access and networking are independent. This permits concurrent sessions, consumers, and one-shot escalated retries to ask the same provider for different file access without mutating provider state.
 
 ```ts type-equiv
 /**
- * What one confined execution is allowed to touch — carried PER CALL, not
- * fixed on the provider: two consumers may confine under different policies
- * at the same instant (bash under `read-only` while a confined child agent
- * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is an explicit step at
- * the consumer boundary; the provider treats the policy as fully specified.
+ * What one sandboxed execution is allowed to touch — carried per call, not
+ * fixed on the provider. `danger-full-access` is valid here because it bypasses
+ * file restrictions only; the provider still enforces the independent network
+ * policy. Defaulting and resolution happen at the consumer boundary.
  */
-interface SandboxPolicy extends SandboxExecutionPolicy {
-  /** The file-effect mode this execution runs under. */
-  mode: ConfinedSandboxMode
-}
+type SandboxPolicy = SandboxExecutionPolicy
 ```
 
 ## Wrapped argv and classification dialects
@@ -115,19 +117,20 @@ interface RunnerFailureRule {
 }
 ```
 
-`ConfinedArgv` is what the consumer spawns. Besides the replacement argv, it carries the backend's enforcement fact and two orthogonal stderr classifiers. `denialSignatures` identify the confined command being blocked while the sandbox works correctly. `runnerFailureRules` identify the sandbox runner refusing or failing before it executes the command; consumers check these first and surface a sandbox infrastructure failure, never an ordinary task failure.
+`ConfinedArgv` is what the consumer spawns. Besides the replacement argv, it carries independent file and network enforcement facts and two orthogonal stderr classifiers. `denialSignatures` identify the confined command being blocked while the sandbox works correctly. `runnerFailureRules` identify the sandbox runner refusing or failing before it executes the command; consumers check these first and surface a sandbox infrastructure failure, never an ordinary task failure.
 
 ```ts type-equiv
 /**
- * A {@link SandboxProvider.confine} result: the argv to spawn in place of
- * the caller's own, plus the enforcement completeness the selected backend
- * achieves for it.
+ * A {@link SandboxProvider.confine} result: the argv to spawn in place of the
+ * caller's own, plus the backend's classification facts.
  */
 interface ConfinedArgv {
   /** The wrapped argv (runner, profile, separator, then the caller's argv). */
   argv: string[]
   /** How completely the selected backend enforces the policy's file effects. */
   enforcement: SandboxEnforcement
+  /** How completely the selected backend enforces child-network denial. */
+  networkEnforcement: SandboxEnforcement
   /**
    * The selected backend's denial DIALECT: the case-insensitive stderr
    * substrings a file effect denied by THIS backend produces (EROFS text
@@ -151,7 +154,7 @@ The [local provider](../../packages/sandbox/sandbox-local/README.md) owns operat
 
 ## Provider and fail-closed errors
 
-`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. Consumers may also classify a failure while spawning or observing the returned argv; that attribution belongs to the consumer contract. Silent unconfined passthrough is never legal for a confined policy.
+`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. Consumers that promise deny-only networking require `networkEnforcement: 'full'` before spawning; the Windows ACL backend currently reports `partial`, so those consumers fail closed. Consumers may also classify a failure while spawning or observing the returned argv; that attribution belongs to the consumer contract. Silent passthrough without the selected restrictions is never legal.
 
 Provider selection, probing, caching, and backend-specific enforcement reports belong to the [local provider](../../packages/sandbox/sandbox-local/README.md).
 
@@ -176,10 +179,10 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
  * @param argv - the exact argv the caller is about to spawn (program plus
  *   arguments), NOT a shell string — a shell-shaped consumer passes
  *   `['bash', '-c', command]`.
- * @param policy - the file-effect policy this execution runs under,
+ * @param policy - the complete file and child-network policy this execution runs under,
  *   carried per call (see {@link SandboxPolicy}).
- * @returns the argv to spawn instead, plus the enforcement completeness
- *   the selected backend achieves for it.
+ * @returns the argv to spawn instead, plus independent file and network
+ *   enforcement completeness.
  */
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
@@ -214,5 +217,5 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [Session](session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:92`](../../packages/sandbox/sandbox-policy/src/index.ts)
 <!-- END GENERATED cordis-surface -->

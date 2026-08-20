@@ -24,12 +24,12 @@ describe('canonicalPath', () => {
 
 describe('writableRoots', () => {
   it('read-only grants nothing', () => {
-    expect(writableRoots({ mode: 'read-only', workspaceRoot: process.cwd() })).toEqual([])
+    expect(writableRoots({ mode: 'read-only', networkMode: 'deny-all', workspaceRoot: process.cwd() })).toEqual([])
   })
 
   it('workspace-write grants the workspace root plus the platform temp areas, canonical and deduplicated', () => {
     const ws = mkdtempSync(join(tmpdir(), 'dsh-ws-'))
-    const roots = writableRoots({ mode: 'workspace-write', workspaceRoot: ws })
+    const roots = writableRoots({ mode: 'workspace-write', networkMode: 'deny-all', workspaceRoot: ws })
     expect(roots).toContain(realpathSync.native(ws))
     expect(roots).toContain(canonicalPath('/tmp'))
     expect(roots).toContain(realpathSync.native(tmpdir()))

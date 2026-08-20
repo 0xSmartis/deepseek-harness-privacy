@@ -2,29 +2,34 @@
 
 [English](sandbox.md) | 中文
 
-[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在文件效果策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock、macOS Seatbelt 与 Windows ACL 受限令牌后端；[dsh-bash-sandbox](../../packages/shell/bash-sandbox) 和 [dsh-pwsh-sandbox](../../packages/shell/pwsh-sandbox) 是其消费方。容器、microVM 和远程执行是完整能力 seam 的同级实现，而非 `ctx.sandbox` 的提供方。
+[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在相互独立的文件效果与子进程网络策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock、macOS Seatbelt 与 Windows ACL 受限令牌后端；[dsh-bash-sandbox](../../packages/shell/bash-sandbox) 和 [dsh-pwsh-sandbox](../../packages/shell/pwsh-sandbox) 是其消费方。容器、microVM 和远程执行是完整能力 seam 的同级实现，而非 `ctx.sandbox` 的提供方。
 
 源码：[`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## 模式与强制执行
 
-`SandboxMode` 仅管控文件系统效果。`read-only` 要求后端拒绝写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何显式可写根目录，并因环境 ACL 缺口报告部分强制执行；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
+`SandboxMode` 仅管控文件系统效果。`read-only` 要求后端拒绝写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何显式可写根目录，并因环境 ACL 缺口报告部分强制执行；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过文件限制。子进程网络由 `SandboxNetworkMode` 独立管控；当前的 `deny-all` 模式拒绝 Internet 协议套接字，同时保留 Unix 域 IPC。
 
 ```ts type-equiv
 /**
  * File-effect policy for confined processes. `read-only` permits only required
  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
- * backend-defined temp area; `danger-full-access` bypasses confinement. Network
- * and process visibility are outside this vocabulary.
+ * backend-defined temp area; `danger-full-access` bypasses file confinement.
+ * Child networking remains independently governed by {@link SandboxNetworkMode}.
  */
 type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
-只有前两种模式可以发送给提供方。`danger-full-access` 的消费方直接 spawn 原始 argv，不调用 `ctx.sandbox`。
+`ConfinedSandboxMode` 为需要判断文件权限扩大关系的 API 命名两种限制文件的模式。它不收窄提供方输入：`danger-full-access` 仍会到达 `ctx.sandbox`，以便应用独立的网络限制。
 
 ```ts type-equiv
-/** A confining (non-`danger-full-access`) mode — the modes a {@link SandboxPolicy} can carry. */
+/** A confining file mode. Network policy can still require a runner when the file mode is `danger-full-access`. */
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
+```
+
+```ts type-equiv
+/** Network policy for an agent-controlled process tree. `deny-all` permits local Unix-domain IPC only. */
+type SandboxNetworkMode = 'deny-all'
 ```
 
 强制执行完整性是后端报告的事实。`full` 表示后端管控了该模式承诺的所有文件效果；`partial` 表示活跃后端或较旧的内核 ABI 仅管控其中一个子集，因此要求绝对保证的消费方必须拒绝或向上暴露这一区别。当前的部分强制执行情形包括较旧的 Landlock ABI，以及 Windows ACL runner 的 Everyone 与硬链接边界。
@@ -40,17 +45,19 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## 逐调用策略
 
-完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent（智能体）时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识 spawn 出的进程实际运行的目录。
+完整执行策略会按每次能力调用解析并携带。文件访问与子进程网络是两个显式、相互独立的字段。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent（智能体）时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识 spawn 出的进程实际运行的目录。
 
 ```ts type-equiv
 /**
- * The complete file-effect policy resolved for one capability call. The root
- * is carried even under modes that do not consume it so callers can resolve
- * policy once before choosing the enforcement path.
+ * The complete file and child-network policy resolved for one capability call.
+ * The root is carried even under modes that do not consume it so callers can
+ * resolve policy once before choosing the enforcement path.
  */
 interface SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: SandboxMode
+  /** Network policy inherited by the process and every descendant. */
+  networkMode: SandboxNetworkMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
   /**
@@ -76,21 +83,16 @@ interface SandboxPolicyRequest {
 }
 ```
 
-只有受约束的执行会到达 `ctx.sandbox`；传给提供方的策略在保留同一 root 的同时收窄模式。这使并发会话、消费方与一次性提权重试可以向同一提供方请求不同边界，而无需改变提供方状态。
+所有本地执行都会到达 `ctx.sandbox`，包括 `danger-full-access`，因为文件访问与网络策略相互独立。这使并发会话、消费方与一次性提权重试可以向同一提供方请求不同的文件访问权限，而无需改变提供方状态。
 
 ```ts type-equiv
 /**
- * What one confined execution is allowed to touch — carried PER CALL, not
- * fixed on the provider: two consumers may confine under different policies
- * at the same instant (bash under `read-only` while a confined child agent
- * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is an explicit step at
- * the consumer boundary; the provider treats the policy as fully specified.
+ * What one sandboxed execution is allowed to touch — carried per call, not
+ * fixed on the provider. `danger-full-access` is valid here because it bypasses
+ * file restrictions only; the provider still enforces the independent network
+ * policy. Defaulting and resolution happen at the consumer boundary.
  */
-interface SandboxPolicy extends SandboxExecutionPolicy {
-  /** The file-effect mode this execution runs under. */
-  mode: ConfinedSandboxMode
-}
+type SandboxPolicy = SandboxExecutionPolicy
 ```
 
 ## 包装后的 argv 与分类方言
@@ -115,19 +117,20 @@ interface RunnerFailureRule {
 }
 ```
 
-`ConfinedArgv` 是消费方实际 spawn 的内容。除了替换后的 argv，它还携带后端的强制执行事实和两种正交的 stderr 分类器。`denialSignatures` 用于识别沙箱正常工作时受限命令被阻止的情况。`runnerFailureRules` 用于识别沙箱 runner 在执行命令之前拒绝或失败的情况；消费方应先检查后者，将其作为沙箱基础设施故障上报，而非普通任务失败。
+`ConfinedArgv` 是消费方实际 spawn 的内容。除了替换后的 argv，它还携带相互独立的文件与网络强制执行事实，以及两种正交的 stderr 分类器。`denialSignatures` 用于识别沙箱正常工作时受限命令被阻止的情况。`runnerFailureRules` 用于识别沙箱 runner 在执行命令之前拒绝或失败的情况；消费方应先检查后者，将其作为沙箱基础设施故障上报，而非普通任务失败。
 
 ```ts type-equiv
 /**
- * A {@link SandboxProvider.confine} result: the argv to spawn in place of
- * the caller's own, plus the enforcement completeness the selected backend
- * achieves for it.
+ * A {@link SandboxProvider.confine} result: the argv to spawn in place of the
+ * caller's own, plus the backend's classification facts.
  */
 interface ConfinedArgv {
   /** The wrapped argv (runner, profile, separator, then the caller's argv). */
   argv: string[]
   /** How completely the selected backend enforces the policy's file effects. */
   enforcement: SandboxEnforcement
+  /** How completely the selected backend enforces child-network denial. */
+  networkEnforcement: SandboxEnforcement
   /**
    * The selected backend's denial DIALECT: the case-insensitive stderr
    * substrings a file effect denied by THIS backend produces (EROFS text
@@ -151,7 +154,7 @@ interface ConfinedArgv {
 
 ## 提供方与 fail-closed 错误
 
-`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方约定。对于受限策略，静默的无隔离透传永远不合法。
+`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。承诺默认拒绝网络的消费方必须在 spawn 前要求 `networkEnforcement: 'full'`；Windows ACL 后端当前报告 `partial`，因此这些消费方会失败闭合。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方约定。静默透传而不应用所选限制永远不合法。
 
 提供方选择、探测、缓存和后端特定的强制执行报告归[本地提供方](../../packages/sandbox/sandbox-local/README.md)所有。
 
@@ -176,10 +179,10 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
  * @param argv - the exact argv the caller is about to spawn (program plus
  *   arguments), NOT a shell string — a shell-shaped consumer passes
  *   `['bash', '-c', command]`.
- * @param policy - the file-effect policy this execution runs under,
+ * @param policy - the complete file and child-network policy this execution runs under,
  *   carried per call (see {@link SandboxPolicy}).
- * @returns the argv to spawn instead, plus the enforcement completeness
- *   the selected backend achieves for it.
+ * @returns the argv to spawn instead, plus independent file and network
+ *   enforcement completeness.
  */
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
@@ -214,5 +217,5 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [Session](session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:92`](../../packages/sandbox/sandbox-policy/src/index.ts)
 <!-- END GENERATED cordis-surface -->

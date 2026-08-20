@@ -9,12 +9,15 @@ import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 
 /**
- * Build the bwrap profile arguments for one file-effect policy.
- * @param policy - file-effect policy to express as bwrap mounts.
+ * Build the bwrap profile arguments for one file and network policy.
+ * @param policy - complete execution policy to express as bwrap namespaces and mounts.
  * @returns profile arguments before the trailing separator and command argv.
  */
 export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
-  const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent']
+  const args = policy.mode === 'danger-full-access'
+    ? ['--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--proc', '/proc', '--die-with-parent']
+    : ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent']
+  args.push('--unshare-net')
   if (policy.mode === 'workspace-write') {
     args.push('--tmpfs', '/tmp')
     args.push('--bind', policy.workspaceRoot, policy.workspaceRoot)
@@ -23,16 +26,19 @@ export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
 }
 
 /**
- * Build the Landlock launcher grants for one file-effect policy.
- * @param policy - file-effect policy to express as Landlock allow-list grants.
+ * Build the Landlock launcher grants for one file and network policy.
+ * @param policy - complete execution policy to express as Landlock and seccomp rules.
  * @returns launcher grant arguments before the trailing separator and command argv.
  */
 export function landlockProfileArgs(policy: SandboxPolicy): string[] {
+  if (policy.mode === 'danger-full-access') {
+    return landlockGrantArgs({ denyNetwork: true })
+  }
   const readWrite = ['/dev/null']
   if (policy.mode === 'workspace-write') {
     readWrite.push('/tmp', policy.workspaceRoot)
   }
-  return landlockGrantArgs({ readOnly: ['/'], readWrite })
+  return landlockGrantArgs({ readOnly: ['/'], readWrite, denyNetwork: true })
 }
 
 /** Quote one path as an SBPL string literal. */
@@ -41,7 +47,8 @@ function sbplString(path: string): string {
 }
 
 /**
- * Build the sandbox-exec arguments and SBPL profile for one policy. The
+ * Build the sandbox-exec arguments and SBPL profile for one policy. Network
+ * operations are denied independently of file mode. The
  * writable roots come from the shared {@link writableRoots} helper (canonical,
  * deduplicated) so the Seatbelt grant and the in-process fs fence
  * (`@deepseek-ai/dsh-fs-sandbox`) can never drift apart.
@@ -49,10 +56,19 @@ function sbplString(path: string): string {
  * @returns sandbox-exec arguments before the trailing separator and command argv.
  */
 export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
-  const forms = ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* (literal ${sbplString('/dev/null')}))`]
-  const roots = writableRoots(policy)
-  if (roots.length > 0) {
-    forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
+  const forms = [
+    '(version 1)',
+    '(allow default)',
+    '(deny network-outbound (remote ip))',
+    '(deny network-bind (local ip))',
+    '(deny network-inbound (local ip))',
+  ]
+  if (policy.mode !== 'danger-full-access') {
+    forms.push('(deny file-write*)', `(allow file-write* (literal ${sbplString('/dev/null')}))`)
+    const roots = writableRoots(policy)
+    if (roots.length > 0) {
+      forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
+    }
   }
   return ['-p', forms.join(' ')]
 }

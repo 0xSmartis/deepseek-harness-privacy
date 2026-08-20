@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-20-independent-child-network-policy.md
+2026-08-20-independent-child-network-policy.md: d0d14ae2223b0385aa8124761852f4ccf62232fb
+2026-08-20-independent-child-network-policy.zh.md: 53ff8a59df4c4969a93744d1e074e03f31608706
