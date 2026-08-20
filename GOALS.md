@@ -1,666 +1,116 @@
-# Privacy-Oriented DeepSeek Harness Fork — Goals
+# Privacy Goals
 
-## Mission
+## Purpose
 
-Build a privacy-oriented fork of DeepSeek Harness where privacy is an architectural property rather than a collection of optional switches.
+This reference defines the fork's intended privacy properties, priorities, and acceptance. It does not track implementation status or replace the [architecture](docs/architecture.md), [subsystem references](docs/subsystems/README.md), or [Agent Notes](.agents/notes/README.md).
 
-The fork should follow one core rule:
+The mission is to make privacy an architectural property rather than a collection of optional switches:
 
-> No data should leave the user's machine unless it is explicitly required for a user-selected provider request or the user has clearly opted in to that specific data flow.
+> Harness-controlled data leaves the user's machine only for a user-selected model request or after the user authorizes that specific class of data flow.
 
-The default configuration should minimize persistent identifiers, outbound network access, sensitive local storage, and agent visibility into secrets.
+A fresh installation minimizes persistent identifiers, external access, sensitive storage, and agent access to secrets without manual hardening.
 
----
+## Scope and threat model
 
-## Core Principles
+### Protected data
 
-### 1. Privacy by Default
+The fork protects prompts, model responses, tool data, workspace content and identity, credentials, session history, diagnostics, local metadata, and persistent identifiers.
 
-The safest configuration must be the default.
+### Trust assumptions
 
-A fresh installation should:
+- Model output, workspace instructions, fetched content, and agent-controlled child processes are untrusted.
+- The operating system, Harness host process, and bundled providers are trusted to enforce their policies. A compromised host or administrator is outside this threat model.
+- An installed in-process plugin is trusted because it has host-process authority. Preventing its direct use of Node.js APIs requires plugin isolation.
+- A selected remote model provider receives the request content sent to it; the fork minimizes and discloses that content but cannot hide it from the provider.
+- Network metadata, backups, snapshots, swap, and crash dumps remain deployment concerns.
 
-- disable telemetry,
-- avoid persistent cross-session identifiers,
-- disable web search,
-- deny arbitrary agent network access,
-- restrict file reads to the active workspace and approved temporary directories,
-- avoid exposing credential paths or session-log paths to agent-controlled processes,
-- retain only the local data required for normal operation.
+External egress means traffic to a remote destination. Loopback traffic between shipped client and host components is not external egress, but it must remain restricted to the local trust boundary.
 
-Users should not need environment variables, undocumented configuration, or manual hardening to reach the privacy-preserving state.
+## Principles
 
-### 2. Explicit Egress
+The fork applies privacy by default, explicit egress, least privilege, no hidden identity, protected local state, and automated enforcement tests. Filesystem, network, process, and credential permissions remain independent, and each guarantee is enforced at the lowest component that owns it.
 
-Every outbound request should have an explicit purpose, destination, and policy decision.
+## Required defaults
 
-The system should distinguish between:
+| Area | Required default | Explicit exception |
+|---|---|---|
+| Model requests | Only the provider and model selected for the user's request receive its content. | The user selects another provider or authorizes an auxiliary call. |
+| Web and auxiliary calls | Web search, title generation, compaction summarization, and similar remote calls do not run without a disclosed authorization. | The user enables the call class with its provider and disclosed input. |
+| Agent network | Agent-controlled child processes have no external network access. | A scoped approval grants the required destination and duration. |
+| Filesystem | Agent tools access the workspace, approved temporary storage, and required read-only runtime files; sensitive and unrelated user paths remain inaccessible. | A scoped approval grants an additional root for the current operation or session. |
+| Credentials | Provider configuration carries references; raw secrets remain in host-owned resolution and are absent from agent environments and tools. | A trusted host plugin explicitly resolves a credential for its operation. |
+| Telemetry and feedback | No telemetry or feedback content is uploaded. | The user enables a documented content-free metrics flow or explicitly sends reviewed feedback. |
+| Identifiers | No persistent cross-session user identifier is created or transmitted. | A separately documented feature obtains explicit authorization for a narrower identifier lifetime. |
+| Local storage | Sensitive files use owner-only access and disclose whether encryption and retention controls are active. | The user deliberately selects a less restrictive storage configuration. |
 
-- main model requests,
-- web search,
-- title generation,
-- compaction,
-- feedback,
-- telemetry,
-- plugin network access,
-- shell/process network access.
+## Priorities
 
-All non-essential egress should be disabled or require explicit approval.
+P0 establishes the safe default required to use the selected model provider. P1 governs optional external capabilities and informed consent. P2 adds defense in depth for local storage and makes the effective privacy state easier to inspect.
 
-### 3. Least Privilege
+### P0 — Remove persistent provider tracking
 
-Agent-controlled tools should receive only the capabilities required for the current task.
+The default composition must not create `$DSH_HOME/.anonymous-user-id`, send `x-deepseek-harness-user-id`, or transmit another stable fork-generated identifier across sessions. Tests cover multiple sessions, restarts, provider requests, telemetry-disabled startup, and feedback. Authorized correlation defaults to a process- or session-scoped random identifier.
 
-Filesystem, network, process, and credential access should be separate permissions rather than consequences of running as the same OS user.
+### P0 — Eliminate undisclosed default egress
 
-### 4. No Hidden Identity
+A clean profile may contact the selected model endpoint for the user's request. Search, remote title generation, telemetry, feedback upload, update checks, and other auxiliary traffic require authorization for their class and destination. An assembled keyless test observes startup, a model turn, title handling, and feedback, permitting only the configured model request.
 
-The default installation should not create or transmit a persistent user identifier.
+### P0 — Isolate agent-controlled network access
 
-Provider requests should not include cross-session tracking identifiers unless the user explicitly enables them.
+Agent-controlled child processes have a network policy independent from filesystem permissions; host-owned provider traffic stays outside it. The default denies descendant connections, while an approved retry may grant a bounded destination and lifetime. Supported backends report enforcement completeness and fail closed when the selected mode promises isolation. Platform tests cover remote and loopback targets, descendants, approval, and backend failure.
 
-### 5. Local Does Not Automatically Mean Private
+### P0 — Confine filesystem reads and writes
 
-Sensitive local state should be protected against:
+Model-facing filesystem operations allow the workspace, approved temporary storage, required read-only runtime roots, and explicit grants. Agent processes receive no ambient access or environment hints for `$DSH_HOME`, session storage, browser profiles, credential stores, unrelated repositories, or sensitive home directories. Tests cover tools and shells, reads and writes, symlinks, sensitive paths, approval, and platform enforcement.
 
-- other local users,
-- accidental disclosure,
-- malicious or prompt-injected agent behavior,
-- excessive retention.
+### P0 — Keep credentials in the host
 
-Local session history and credentials should be treated as sensitive data.
+Existing [credential references](docs/subsystems/credentials.md) remain the configuration interface. Provider adapters resolve them for host-owned requests; model data, agent environments, tools, diagnostics, errors, events, and readable storage never contain raw values. Tests pair successful authentication with absence from those paths. Configuration may report configured state and source class, but not values or host paths.
 
-### 6. Privacy Must Be Testable
+### P1 — Declare and enforce bundled egress
 
-Privacy guarantees must be covered by automated tests.
+One machine-checkable inventory declares every bundled external flow's purpose, destination resolver, trigger, payload categories, identifier use, and authorization. Runtime policy resolves it to allow, deny, or ask before sending. CI rejects undeclared bundled networking and restricts direct network primitives to transport owners. Child-process isolation covers commands; the trust model covers installed in-process plugins.
 
-A future code change should not be able to introduce a new outbound data path or sensitive filesystem access without failing CI.
+### P1 — Offer content-free metrics and local diagnostics
 
----
+Opted-in metrics may contain application version, operating-system family, model identifier, latency, token counts, error categories, and tool names. They exclude prompts, responses, tool data, filenames, paths, repository names, session or user identifiers, and file contents. The product calls them content-free rather than anonymous because metadata can permit correlation. Tests enforce the serialized allowlist and reject session events or content-bearing attributes. Diagnostics export remains a separate, inspectable local artifact.
 
-## Per-Goal Completion Requirements
+### P1 — Separate feedback from session sharing
 
-Every goal in this document is incomplete until its implementation is documented and committed.
+Feedback stays local by default. Sending it transmits only reviewed text and documented metadata, never a transcript, session prefix, tool output, workspace path, or unrelated event. Tests cover every telemetry configuration and require a separate action for session sharing.
 
-For **each individual goal**:
+### P1 — Make auxiliary model calls visible
 
-1. Implement the goal and its required tests.
-2. Update the repository `README.md` to reflect any user-visible behavior, privacy guarantee, configuration option, security boundary, limitation, or migration step introduced by the goal.
-3. Update any additional technical documentation affected by the change.
-4. Verify that the goal's acceptance criteria and relevant privacy-regression tests pass.
-5. Review the final diff to ensure it does not introduce undocumented network, identity, credential, filesystem, telemetry, or persistence behavior.
-6. Create a dedicated Git commit for the completed goal.
+Title generation, compaction, search, and future auxiliary model features independently declare their provider, purpose, inputs, and authorization. Changing the main model does not broaden auxiliary egress. Tests verify each assembled call's provider and bounded input; disabled calls use a local fallback or produce no network result.
 
-Each goal should therefore end in a repository state that is:
+### P2 — Protect session storage at rest
 
-```text
-implemented
-tested
-documented
-README updated
-reviewed
-committed
-```
+Session logs, attachments, spill files, diagnostics, and indexes use owner-only access. Persistence supports encryption without storing its key beside the data and reports whether encryption is active. OS-backed secret storage is preferred; headless deployments use an explicit key source or report unencrypted storage. Copying encrypted storage alone must not reveal content.
 
-Commits should be scoped to the goal where practical and use a descriptive message, for example:
+### P2 — Add retention and complete logical deletion
 
-```text
-privacy: remove persistent provider identifiers
-privacy: sandbox agent network access
-privacy: restrict filesystem reads to workspace
-privacy: add host credential broker
-```
+Retention is finite, configurable, and visible. One workflow deletes session logs and owned attachments, diagnostics, identifiers, indexes, caches, and related artifacts. Tests cover expiry, deletion, restart, and shared artifacts. The product calls this logical deletion, claims cryptographic erasure only through effective key destruction, and makes no physical-erasure promise for SSDs, snapshots, or backups.
 
-Do not consider a goal complete while its changes remain only as uncommitted working-tree modifications.
+### P2 — Expose effective privacy state and egress history
 
----
+One view shows effective destinations, network enforcement, filesystem roots, credential source classes, identifiers, telemetry, encryption, and retention. It uses resolved behavior and highlights weakened defaults. A local egress history records time, purpose, destination, authorization, and payload classification without content, secrets, filenames, paths, or tool output. Tests compare the view with runtime configuration and reject content-bearing history fields.
 
-# Priority Goals
+## Verification and design ownership
 
-## P0 — Remove Persistent Provider Tracking
+Each goal is complete only when its enforcing package has focused unit or integration coverage, assembled user-visible behavior has a keyless snapshot where required by [testing policy](docs/testing.md), supported operating systems have enforcement coverage, and the owning package and subsystem references document defaults, exceptions, failure behavior, and limitations.
 
-Remove the default use of a persistent harness-wide anonymous user ID in provider requests.
+Substantial designs begin as proposed [Agent Notes](.agents/notes/README.md). Implementation status belongs to source, tests, and project tracking rather than this document. Documentation, review, checks, and commit structure follow [AGENTS.md](AGENTS.md) instead of a separate privacy-specific workflow.
 
-### Requirements
-
-- Do not create `$DSH_HOME/.anonymous-user-id` during normal operation.
-- Do not send `x-deepseek-harness-user-id` by default.
-- Do not send persistent cross-session identifiers to model providers.
-- Avoid sending a provider-visible session identifier unless required for a specific feature.
-- If correlation is explicitly enabled, prefer:
-  - process-scoped identifiers, or
-  - session-scoped random identifiers.
-
-### Acceptance Criteria
-
-A clean installation can run multiple sessions without creating or transmitting a stable cross-session identifier.
-
----
-
-## P0 — Enforce Network Isolation for Agent-Controlled Processes
-
-The agent sandbox must control network access independently from filesystem permissions.
-
-### Default Policy
-
-```text
-Main model provider:      allowed
-Agent shell network:      denied
-Plugin network:           denied or ask
-Web search:               disabled
-Telemetry:                disabled
-Feedback upload:          disabled
-```
-
-### Requirements
-
-- Add a dedicated network permission boundary.
-- Deny arbitrary outbound connections from model-controlled shell processes by default.
-- Support explicit escalation.
-- Support destination allowlists where practical.
-- Keep host-owned provider traffic separate from agent-owned network traffic.
-
-### Acceptance Criteria
-
-A default agent session cannot use shell tools to contact an arbitrary internet host.
-
----
-
-## P0 — Restrict Filesystem Reads
-
-The default sandbox should protect reads as well as writes.
-
-### Default Access
-
-```text
-Workspace:                read/write
-Session temp directory:   read/write
-Everything else:          denied
-```
-
-### Sensitive Locations
-
-Access should be denied by default to locations such as:
-
-```text
-$DSH_HOME
-~/.ssh
-~/.gnupg
-~/.aws
-~/.config
-browser profiles
-credential stores
-unrelated repositories
-```
-
-### Requirements
-
-- Separate read and write permissions.
-- Prevent workspace prompt injection from reading unrelated local secrets.
-- Require explicit approval for access outside the allowed roots.
-
-### Acceptance Criteria
-
-A model-controlled filesystem or shell operation cannot read `$DSH_HOME/.credentials.yaml`, `~/.ssh`, or arbitrary files outside the active workspace without explicit approval.
-
----
-
-## P0 — Isolate Credentials Behind a Host Credential Broker
-
-Provider credentials must remain outside the agent-controlled execution domain.
-
-### Target Architecture
-
-```text
-Agent
-  |
-  | credential reference
-  v
-Host Credential Broker
-  |
-  | injects provider authentication
-  v
-Provider
-```
-
-### Requirements
-
-- The agent must never receive raw provider API keys.
-- Prefer OS-backed secret stores where available.
-- Do not expose credential file paths to model-controlled processes.
-- Do not expose `$DSH_HOME` unless a tool genuinely requires it.
-- Do not expose session persistence paths to shell tools by default.
-
-### Acceptance Criteria
-
-Running `env`, filesystem enumeration, or ordinary shell tools does not reveal provider credentials or their storage location.
-
----
-
-# P1 — Redesign Telemetry
-
-Telemetry should contain no user content by default.
-
-### Modes
-
-Replace broad session-sharing semantics with a smaller model:
-
-```text
-OFF
-ANONYMOUS_METRICS
-DIAGNOSTICS_EXPORT
-```
-
-### Anonymous Metrics May Include
-
-- application version,
-- operating-system family,
-- model identifier,
-- latency,
-- token counts,
-- error categories,
-- tool names.
-
-### Anonymous Metrics Must Not Include
-
-- prompts,
-- model responses,
-- tool arguments,
-- tool output,
-- filenames,
-- absolute or relative workspace paths,
-- repository names,
-- session IDs,
-- persistent user IDs,
-- file contents.
-
-### Diagnostics
-
-Diagnostics should be manually exported to a local file for review before sharing.
-
-### Acceptance Criteria
-
-Enabling anonymous metrics cannot transmit session content.
-
----
-
-## P1 — Decouple Feedback From Session Sharing
-
-Feedback must not implicitly release session history.
-
-### Requirements
-
-`/feedback` should submit only the feedback content and minimal explicitly documented metadata.
-
-Example:
-
-```json
-{
-  "text": "Search was slow.",
-  "version": "...",
-  "platform": "linux"
-}
-```
-
-It must not automatically include:
-
-- earlier prompts,
-- tool output,
-- workspace paths,
-- conversation history,
-- unrelated session events.
-
-### Acceptance Criteria
-
-Submitting feedback cannot cause the session transcript or a session prefix to be uploaded.
-
----
-
-## P1 — Introduce a Central Egress Policy
-
-All external data flows should pass through a common policy layer.
-
-### Target Architecture
-
-```text
-LLM ----------------------+
-Web Search ---------------+
-Title Generation ---------+
-Compaction ---------------+--> PrivacyEgressController --> Network
-Telemetry ----------------+
-Feedback -----------------+
-Plugins ------------------+
-```
-
-### Every Request Should Declare
-
-- purpose,
-- destination,
-- data classification,
-- whether user content is included,
-- whether workspace content is included,
-- whether persistent identifiers are included.
-
-### Policy Outcomes
-
-```text
-ALLOW
-DENY
-ASK
-```
-
-### Acceptance Criteria
-
-A new network-capable component cannot bypass the central egress policy in the supported runtime.
-
----
-
-## P1 — Disable Web Search by Default
-
-Web search is an external disclosure channel and should require explicit enablement.
-
-### Requirements
-
-- Disable web search in the default bundle.
-- Ask before the first external search.
-- Support:
-  - allow once,
-  - allow for this session,
-  - always allow this provider,
-  - cancel.
-- Clearly show the destination receiving the query.
-
-### Acceptance Criteria
-
-A fresh installation cannot send a web-search query without user action.
-
----
-
-## P1 — Make Auxiliary LLM Calls Visible and Controllable
-
-Secondary model calls must be treated as external data flows.
-
-This includes:
-
-- session-title generation,
-- compaction,
-- summarization,
-- search requests,
-- future auxiliary model features.
-
-### Requirements
-
-- Make each auxiliary call type independently configurable.
-- Default title generation to local or disabled where feasible.
-- Keep compaction on the same provider by default unless explicitly configured otherwise.
-- Route all auxiliary calls through the central egress policy.
-- Document exactly what context each auxiliary request receives.
-
-### Acceptance Criteria
-
-Users can determine which provider receives each class of auxiliary request.
-
----
-
-# P2 — Encrypt Local Session Storage
-
-Local session history should be treated as sensitive data.
-
-### Requirements
-
-- Support encryption at rest.
-- Prefer a master key stored in:
-  - macOS Keychain,
-  - Windows DPAPI / Credential Manager,
-  - Linux Secret Service or equivalent.
-- Never store the encryption key next to the session database.
-- Preserve crash recovery and append durability where possible.
-
-### Acceptance Criteria
-
-Copying the session storage directory alone is insufficient to read session contents.
-
----
-
-## P2 — Add Retention and Secure Erasure Controls
-
-The system should not retain session history indefinitely by default.
-
-### Example Policy
-
-```text
-sessions:        30 days
-diagnostics:      1 day
-temporary logs:   7 days
-```
-
-### Requirements
-
-- Add configurable retention policies.
-- Add a command such as:
-
-```text
-dsh privacy erase
-```
-
-- Allow users to erase:
-  - sessions,
-  - attachments,
-  - diagnostics,
-  - identifiers,
-  - cached metadata.
-
-### Acceptance Criteria
-
-Users can delete all locally retained session-related data through one documented workflow.
-
----
-
-## P2 — Add a Privacy Dashboard
-
-Users should be able to understand the effective privacy state without reading source code or environment variables.
-
-### Example
-
-```text
-Privacy
-
-Network
-  Model provider          DeepSeek        ON
-  Web search              OFF
-  Agent network           BLOCKED
-  Plugin network          ASK
-
-Storage
-  Session history         Encrypted
-  Retention               30 days
-  Credentials             OS keychain
-
-Identifiers
-  Persistent user ID      NONE
-  Provider session ID     NONE
-
-Diagnostics
-  Telemetry               OFF
-  Feedback sharing        OFF
-```
-
-### Requirements
-
-- Show the effective configuration rather than only stored settings.
-- Clearly identify every enabled external destination.
-- Surface any privacy-reducing configuration changes.
-
----
-
-# Architectural Components
-
-## NetworkBroker
-
-Own all outbound network access from agent-controlled code.
-
-Responsibilities:
-
-- destination enforcement,
-- allowlists,
-- per-session approvals,
-- audit events,
-- denial handling.
-
-## CredentialBroker
-
-Own provider secrets.
-
-Responsibilities:
-
-- secret retrieval,
-- secure storage,
-- provider authentication,
-- preventing raw secret exposure to agents.
-
-## WorkspaceSandbox
-
-Own filesystem and process confinement.
-
-Responsibilities:
-
-- workspace read/write rules,
-- read isolation,
-- temporary-directory access,
-- sensitive-path denial,
-- controlled escalation.
-
-## PrivacyEgressController
-
-Own application-level outbound data decisions.
-
-Responsibilities:
-
-- classify requests,
-- apply policy,
-- request consent,
-- record privacy-safe audit metadata,
-- prevent hidden outbound channels.
-
----
-
-# Privacy Audit Log
-
-The fork should expose a local, privacy-safe record of outbound activity.
-
-Example:
-
-```text
-20:14:03 model-request
-  destination: api.deepseek.com
-  session-content: yes
-  workspace-content: possible
-  persistent-id: no
-
-20:14:12 web-search
-  blocked by policy
-
-20:14:31 shell-network
-  destination: registry.npmjs.org
-  denied
-```
-
-The audit log itself must not duplicate prompts, source code, secrets, or tool outputs.
-
----
-
-# Automated Privacy Tests
-
-Privacy guarantees must be part of CI.
-
-Required categories include:
-
-### Network
-
-- A default agent turn contacts only the configured model endpoint.
-- Shell processes cannot reach arbitrary external hosts.
-- Disabled web search produces no network request.
-- Disabled telemetry produces no telemetry request.
-
-### Identity
-
-- A clean installation creates no persistent user identifier.
-- Provider requests contain no persistent user ID.
-- Multiple sessions cannot be correlated through a fork-generated stable identifier.
-
-### Filesystem
-
-- Workspace reads succeed.
-- Workspace writes succeed under `workspace-write`.
-- Reads outside the workspace are denied by default.
-- Credential stores cannot be read by agent tools.
-- Sensitive home directories are inaccessible by default.
-
-### Credentials
-
-- `env` inside agent-controlled shell processes contains no provider keys.
-- Provider requests still authenticate correctly through the credential broker.
-
-### Telemetry
-
-- Anonymous telemetry fixtures contain no message content.
-- Telemetry serialization rejects forbidden fields.
-- Feedback never includes transcript data.
-
-### Regression
-
-CI should fail when a new direct network client is introduced outside approved networking packages.
-
----
-
-# Non-Goals
+## Non-goals
 
 The fork does not aim to:
 
-- make remote LLM usage private from the selected model provider,
-- prevent users from explicitly granting broad filesystem or network access,
-- prevent intentionally installed trusted plugins from receiving explicitly granted capabilities,
-- provide anonymity against network-level metadata such as the user's public IP address when contacting a remote provider,
-- guarantee privacy when running with unrestricted `danger-full-access`.
+- hide remote LLM request content from the selected model provider;
+- provide anonymity against network metadata such as the user's public IP address;
+- withstand a compromised host process, operating-system administrator, or malicious kernel;
+- prevent users from explicitly granting broad filesystem or network access;
+- sandbox a deliberately installed in-process plugin unless a future plugin-isolation capability says otherwise;
+- guarantee deletion from backups, snapshots, swap, crash dumps, or provider systems;
+- guarantee privacy while an agent runs with unrestricted host access.
 
-The goal is to make data exposure deliberate, minimal, observable, and enforceable.
-
----
-
-# Definition of Done
-
-The privacy-oriented fork is considered successful when a fresh installation satisfies all of the following:
-
-1. No telemetry is sent.
-2. No persistent cross-session user identifier is created or transmitted.
-3. Only the configured model provider can be contacted automatically.
-4. Agent-controlled processes have no network access by default.
-5. Agent-controlled tools cannot read outside the active workspace by default.
-6. Provider credentials are inaccessible to agent-controlled code.
-7. Web search requires explicit enablement.
-8. Auxiliary LLM requests are visible and policy-controlled.
-9. Feedback cannot release session history.
-10. Session storage can be encrypted and automatically expired.
-11. Users can inspect all effective privacy-relevant settings in one place.
-12. CI verifies the critical privacy boundaries.
-13. Every completed goal has corresponding `README.md` updates where applicable.
-14. Every completed goal ends with its own reviewed Git commit.
-
----
-
-# Suggested Implementation Order
-
-1. Remove persistent provider identifiers.
-2. Introduce agent network isolation.
-3. Enforce filesystem read confinement.
-4. Add the credential broker.
-5. Introduce the central egress controller.
-6. Remove content-bearing telemetry.
-7. Decouple feedback from session sharing.
-8. Disable web search by default.
-9. Route auxiliary model calls through egress policy.
-10. Add encrypted persistence and retention.
-11. Add the privacy dashboard and local egress audit.
-12. Expand CI with privacy-regression tests.
-
-The first four items establish the core trust boundaries. Later work should build on those boundaries rather than introduce separate feature-specific privacy switches.
+The intended result is data exposure that is deliberate, minimal, observable, and enforceable within these assumptions.

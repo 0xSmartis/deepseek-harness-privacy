@@ -1,8 +1,6 @@
-**This is my personal attempt to make the DeepSeek Harness more privacy oriented.**
+**This repository is a personal privacy-oriented fork of DeepSeek Harness.**
 
-Following things have been implemented:
-
-- #Todo
+The [privacy goals](GOALS.md) define its threat model, required defaults, priorities, and non-goals. Package and subsystem references remain authoritative for current behavior.
 
 ---
 

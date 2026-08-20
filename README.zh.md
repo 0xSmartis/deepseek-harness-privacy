@@ -1,3 +1,9 @@
+**本仓库是 DeepSeek Harness 的个人隐私导向 fork。**
+
+[隐私目标](GOALS.md)定义了其威胁模型、必要默认值、优先级和非目标。当前行为仍以各包与子系统参考文档为准。
+
+---
+
 # DeepSeek Harness
 
 [English](README.md) | 中文
