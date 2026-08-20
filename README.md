@@ -1,3 +1,11 @@
+**This is my personal attempt to make the DeepSeek Harness more privacy oriented.**
+
+Following things have been implemented:
+
+- #Todo
+
+---
+
 # DeepSeek Harness
 
 English | [中文](README.zh.md)
