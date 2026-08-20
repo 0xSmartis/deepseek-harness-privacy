@@ -68,11 +68,12 @@
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
-# Summarize an older range after measured pressure or a canonical provider overflow.
-# Ratios scale against the routed model's context window.
+# Manual compaction backend. Automatic pressure and overflow summaries require
+# an explicit opt-in because they send conversation context to a model.
 - id: compaction-basic
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
+    auto: false
     thresholdRatio: 0.8
     retainRatio: 0.08
     maxTokens: 8192

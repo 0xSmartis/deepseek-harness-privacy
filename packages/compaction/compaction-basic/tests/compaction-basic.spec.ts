@@ -285,7 +285,7 @@ async function compactIfNeeded(
 }
 
 describe('compact configuration and defaults', () => {
-  it('uses low-friction service-wide defaults', () => {
+  it('uses privacy-safe service-wide defaults', () => {
     const resolved = resolveConfig({})
 
     expect(resolved).toEqual({
@@ -297,7 +297,7 @@ describe('compact configuration and defaults', () => {
       compactionRetries: 1,
       maxOverflowRetries: 1,
       modelPolicies: [],
-      auto: true,
+      auto: false,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
   })
@@ -1462,9 +1462,16 @@ describe('automatic listener and loader composition', () => {
     return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
   }
 
+  function automatic(
+    ctx: Context,
+    config: BasicCompactionConfig = {},
+  ): TestCompactionEngine {
+    return new TestCompactionEngine(ctx, { ...config, auto: true })
+  }
+
   it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
@@ -1480,7 +1487,7 @@ describe('automatic listener and loader composition', () => {
 
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
@@ -1498,7 +1505,7 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
@@ -1519,7 +1526,7 @@ describe('automatic listener and loader composition', () => {
       id: model,
       name: model,
     }))
-    void new TestCompactionEngine(ctx, {
+    void automatic(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
@@ -1537,7 +1544,7 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    void new TestCompactionEngine(ctx, {
+    void automatic(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 500,
     })
@@ -1553,7 +1560,7 @@ describe('automatic listener and loader composition', () => {
 
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
     const ctx = createContext(10_000)
-    void new TestCompactionEngine(ctx, {
+    void automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 900,
     })
@@ -1577,7 +1584,7 @@ describe('automatic listener and loader composition', () => {
       headChars: 20,
       tailChars: 10,
     })
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 900,
     })
@@ -1596,7 +1603,7 @@ describe('automatic listener and loader composition', () => {
       headChars: 20,
       tailChars: 10,
     })
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 900,
     })
@@ -1617,7 +1624,7 @@ describe('automatic listener and loader composition', () => {
       headChars: 20,
       tailChars: 10,
     })
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 900,
     })
@@ -1640,7 +1647,7 @@ describe('automatic listener and loader composition', () => {
       headChars: 20,
       tailChars: 10,
     })
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 900,
     })
@@ -1654,7 +1661,7 @@ describe('automatic listener and loader composition', () => {
 
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
     const ctx = createContext()
-    void new TestCompactionEngine(ctx, {
+    void automatic(ctx, {
       thresholdRatio: 1,
       retainTokens: 90,
     })
@@ -1673,7 +1680,7 @@ describe('automatic listener and loader composition', () => {
 
   it('does not retry when a backend reports success without replacing the surface', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx)
+    const compact = automatic(ctx)
     const session = conversation(2)
     const fakeResult: CompactionResult = {
       compactionId: CompactionId('fake-compaction'),
@@ -1693,7 +1700,7 @@ describe('automatic listener and loader composition', () => {
 
   it('delegates downstream exactly once when no replacement is available', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx)
+    const compact = automatic(ctx)
     vi.spyOn(compact, 'compactIfNeeded').mockResolvedValue(null)
     const downstream = new Error('downstream recovery failed')
     let calls = 0
@@ -1715,7 +1722,7 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    const compact = new TestCompactionEngine(ctx)
+    const compact = automatic(ctx)
     compact.error = new Error('summary unavailable')
     const original = overflow('original provider overflow')
 
@@ -1731,7 +1738,7 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext()
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    const compact = new TestCompactionEngine(ctx)
+    const compact = automatic(ctx)
     compact.error = 'non-error recovery failure'
     const session = conversation(3)
     const generation = session.surface.replaceGeneration
@@ -1755,7 +1762,7 @@ describe('automatic listener and loader composition', () => {
 
   it('recovers an overflow for an unlisted routed model', async () => {
     const ctx = createContext()
-    void new TestCompactionEngine(ctx)
+    void automatic(ctx)
     const session = conversation(2)
     session.append('request/header', {
       header: { config: { provider: 'unknown-routed-provider', model: 'unknown-routed-model' } },
@@ -1767,7 +1774,7 @@ describe('automatic listener and loader composition', () => {
 
   it('delegates canonical overflow when no durable routed target exists', async () => {
     const ctx = createContext()
-    void new TestCompactionEngine(ctx)
+    void automatic(ctx)
     const session = Session.create(SessionId('headerless-overflow'))
     session.append('turn/start', {
       turn: 1,
@@ -1778,7 +1785,7 @@ describe('automatic listener and loader composition', () => {
 
   it('honors retry caps and ignores non-context failures', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, { maxOverflowRetries: 1 })
+    const compact = automatic(ctx, { maxOverflowRetries: 1 })
     const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
     const owner = agent(conversation(3), MODEL)
     expect(await recover(ctx, owner, Object.assign(new Error('rate limit'), { code: 'RATE_LIMIT' })))
@@ -1791,7 +1798,7 @@ describe('automatic listener and loader composition', () => {
 
   it('applies the routed model override to the overflow retry cap', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, {
+    const compact = automatic(ctx, {
       maxOverflowRetries: 2,
       modelPolicies: [{
         provider: MODEL,
@@ -1810,7 +1817,7 @@ describe('automatic listener and loader composition', () => {
 
   it('does not retry when cancellation lands during an awaited compaction', async () => {
     const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx)
+    const compact = automatic(ctx)
     const controller = new AbortController()
     compact.mutateDuringSummary = () => { controller.abort('cancelled during summary') }
     const session = conversation(3)
@@ -1823,6 +1830,7 @@ describe('automatic listener and loader composition', () => {
   it('maxOverflowRetries:0 disables recovery without disabling post-step pressure', async () => {
     const ctx = createContext()
     void new TestCompactionEngine(ctx, {
+      auto: true,
       maxOverflowRetries: 0,
       thresholdRatio: 0.5,
       retainTokens: 180,

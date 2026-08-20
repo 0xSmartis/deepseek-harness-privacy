@@ -8,6 +8,12 @@ The patch gates both shell stacks by platform on its own rows: `bash-sandbox`/`t
 
 The row set and its rationale are documented inline in the patch file; the [generated composition graph](../../../apps/cli/composition.md) renders it.
 
+## External calls
+
+A fresh profile enables only the selected conversation-model route. The built-in fallback titles sessions locally, automatic compaction is off, the DeepSeek Web search provider is disabled, and session telemetry resolves to `DISABLED`. The `web_search` schema remains stable but returns a provider-unavailable error until a deployment enables a search provider; `/compact` is a deliberate manual model call and `/feedback` records locally while telemetry remains disabled.
+
+An override that enables an auxiliary call authorizes that call class and must disclose its destination and input. Re-enable `session-title-llm` to send the first eligible human prompt to its configured provider/model, set `compaction-basic.config.auto: true` to permit conversation-context summaries, or re-enable `web-search-deepseek` with its Anthropic-compatible `baseURL` to send search queries there. `DSH_TELEMETRY_MODE=FULL` or `FEEDBACK_ONLY` similarly opts into the configured OTLP endpoint; leaving it unset sends nothing.
+
 ## Model Experience
 
 Indirectly, through the inserted rows: this bundle selects the shipped persona-less prompt base, tool set, and DeepSeek adapter that mode bundles specialize, and contributes no model-visible text of its own.
@@ -19,4 +25,5 @@ None directly; each inserted row's package owns its effect.
 ## Known Limitations and Deferred Work
 
 - **A patch replaces whole row configs** — profile overrides must restate every field a row keeps; there is no deep-merge layer.
+- **Disabled auxiliary calls trade convenience for explicit egress** — fallback titles remain available and manual compaction remains deliberate, but automatic title refinement, automatic context recovery, and Web search require a deployment override.
 - **The Windows temp grant is a private per-session subdirectory** — `workspace-write` confines writes to the workspace plus the session's own temp subdirectory (`<temp>\dsh-<hash>`, TMP/TEMP rewritten for confined children); `read-only` grants nothing. See `@deepseek-ai/dsh-sandbox-windows-acl`.

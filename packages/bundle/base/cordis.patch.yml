@@ -45,6 +45,10 @@
 
     - id: session-title-llm
       name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+      # Auxiliary title generation sends the first human prompt to a model.
+      # The deterministic session-title fallback remains active; a deployment
+      # opts into this row only after disclosing its provider and input.
+      disabled: true
       config:
         targetWords: 5
         targetCjkCharacters: 10
@@ -283,6 +287,11 @@
 
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
+      # Manual `/compact` remains available as an explicit action. Automatic
+      # pressure and overflow summarization require a deployment opt-in because
+      # they issue an auxiliary model request with conversation context.
+      config:
+        auto: false
 
     # Human `/compact`: one useful reduction below the automatic threshold. Backend
     # independent, so it follows whichever compaction service this leaf mounts.
@@ -393,14 +402,11 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
-    # Every mode enables the stable model-facing web_search tool. DeepSeek search
-    # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
-    # chat, at each search; its Messages endpoint is separate from the
-    # chat-completions endpoint, so it takes its own base-URL override. Fetch stays
-    # disabled and no fetch provider is mounted: that provider defers SSRF
-    # protection and the model would choose the request target. Search is a full
-    # auxiliary model request with server-side retrieval, so this shipped DeepSeek
-    # route gets 60s while the provider-neutral tool default remains 30s.
+    # Every mode exposes the stable model-facing web_search tool, but the shipped
+    # DeepSeek provider stays disabled: a search is a full auxiliary Messages
+    # request carrying the query to a distinct endpoint. A deployment opts into
+    # this row only after disclosing that class, destination, and input. Fetch stays
+    # disabled and no fetch provider is mounted because the model chooses its URL.
     - id: web
       name: '@deepseek-ai/dsh-web'
       config:
@@ -408,6 +414,7 @@
 
     - id: web-search-deepseek
       name: '@deepseek-ai/dsh-web-search-deepseek'
+      disabled: true
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
 

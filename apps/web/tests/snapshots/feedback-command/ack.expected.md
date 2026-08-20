@@ -31,7 +31,7 @@
   - img
 - text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - img
-- text: feedback Feedback recorded for session session-{{uuid}}. Session sharing is enabled.
+- text: feedback Feedback recorded for session session-{{uuid}}. Session sharing is disabled.
 - textbox "Message the agent"
 - button "Commands":
   - img

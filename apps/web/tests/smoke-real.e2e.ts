@@ -78,12 +78,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function providerTitle(page: HistoryPage): string | undefined {
+function fallbackTitle(page: HistoryPage): string | undefined {
   for (let index = page.events.length - 1; index >= 0; index--) {
     const event = page.events[index]!.event
     if (event.type !== 'session/title' || !isRecord(event.data)) continue
     const source = event.data.source
-    if (typeof event.data.title === 'string' && isRecord(source) && source.kind === 'provider') {
+    if (typeof event.data.title === 'string' && isRecord(source) && source.kind === 'fallback') {
       return event.data.title
     }
   }
@@ -104,13 +104,13 @@ async function history(baseUrl: string, sessionId: string): Promise<HistoryPage>
   return rpc<HistoryPage>(baseUrl, 'session.history', { sessionId, maxMessages: 10 })
 }
 
-async function waitForProviderTitle(baseUrl: string, sessionId: string): Promise<string> {
+async function waitForFallbackTitle(baseUrl: string, sessionId: string): Promise<string> {
   let observed: string | undefined
   await expect.poll(async () => {
-    observed = providerTitle(await history(baseUrl, sessionId))
+    observed = fallbackTitle(await history(baseUrl, sessionId))
     return observed
   }, { timeout: 90_000 }).toEqual(expect.any(String))
-  if (observed === undefined) throw new Error('provider-backed session title was not observed')
+  if (observed === undefined) throw new Error('local fallback session title was not observed')
   return observed
 }
 
@@ -306,17 +306,10 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        const parsed = JSON.parse(body) as { max_tokens?: number; messages?: unknown[] }
-        const titleRequest = parsed.max_tokens === 64
-        const mainRequest = !titleRequest && body.includes(promptMarker)
+        const mainRequest = body.includes(promptMarker)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         if (!mainRequest) {
-          response.end([
-            'data: {"choices":[{"delta":{"content":"Web retry title"}}]}',
-            'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
-            'data: [DONE]',
-            '',
-          ].join('\n\n'))
+          response.end('data: {"error":{"message":"unexpected auxiliary request"}}\n\n')
           return
         }
         mainAttempts++
@@ -561,7 +554,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const sessions = await rpc<{ items: { sessionId: string }[] }>(baseUrl, 'session.list', {})
     const sessionId = sessions.items[0]?.sessionId
     if (sessionId === undefined) throw new Error('created Web session was not listed')
-    const durableTitle = await waitForProviderTitle(baseUrl, sessionId)
+    const durableTitle = await waitForFallbackTitle(baseUrl, sessionId)
     await page.waitForFunction(
       ({ expected, product }) => document.title === `${expected} — ${product}`,
       { expected: durableTitle, product: productTitle },

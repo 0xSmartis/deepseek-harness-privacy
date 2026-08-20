@@ -16,8 +16,7 @@
 // second yml): temp persistenceRoot; host-level skill roots confined to the
 // temp workspace while project skill discovery remains real; agent-instructions
 // disabled (recorded fixtures must not embed this repo's AGENTS.md);
-// session-title-llm disabled (its fire-and-forget title call would race the
-// loop for the session's replay cursor); webserver pinned to port 0 with the
+// webserver pinned to port 0 with the
 // built dist; ordinary keyless modes disable llm-deepseek and fill the open
 // llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
@@ -438,13 +437,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // value into session.cwd — chdir below anchors all three to the temp
     // workspace, keeping the composition untouched.
     { id: 'agent-instructions', disabled: true },
-    { id: 'session-title-llm', disabled: true },
-    // Fixture sessions must never leave the process: the shipped row defaults
-    // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment). A scenario that pins a real backend
-    // disclosure passes a local dead endpoint instead of disabling the row.
+    // Fixture sessions must never leave the process. The default path mounts
+    // the real telemetry backend in its shipped DISABLED mode; a scenario that
+    // pins an enabled disclosure passes a local dead endpoint.
     options.telemetryUrl === undefined
-      ? { id: 'session-telemetry-otel', disabled: true }
+      ? { id: 'session-telemetry-otel', config: { mode: 'DISABLED' } }
       : {
         id: 'session-telemetry-otel',
         config: {
@@ -496,6 +493,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       ? []
       : [{
         id: 'web-search-deepseek',
+        disabled: false,
         config: {
           apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
           baseURL: options.deepSeekSearch.baseURL,

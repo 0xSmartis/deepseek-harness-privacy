@@ -8,6 +8,12 @@ patch 在自身上按平台门控两个 shell 栈：`bash-sandbox`/`tool-bash` �
 
 行集合及其设计依据以行内注释写在 patch 文件里；[生成的组合图](../../../apps/cli/composition.md)负责渲染它。
 
+## 外部调用
+
+全新 profile 只启用所选的会话模型路由。内置回退在本地生成会话标题，自动压缩处于关闭状态，DeepSeek Web 搜索提供方被禁用，会话遥测解析为 `DISABLED`。`web_search` schema 保持稳定，但在部署启用搜索提供方之前会返回提供方不可用错误；`/compact` 是用户主动发起的模型调用，遥测保持禁用时 `/feedback` 只在本地记录。
+
+启用辅助调用的覆盖配置即授权该类调用，并且必须披露其目的地和输入。重新启用 `session-title-llm` 会把第一条合格的人类提示发送给其配置的提供方／模型；将 `compaction-basic.config.auto` 设为 `true` 会允许携带会话上下文的摘要；重新启用 `web-search-deepseek` 并设置其 Anthropic 兼容 `baseURL` 会把搜索查询发送到该处。同样，`DSH_TELEMETRY_MODE=FULL` 或 `FEEDBACK_ONLY` 会选择启用配置的 OTLP 端点；保持未设置则不会发送任何内容。
+
 ## 模型体验
 
 通过插入的行间接产生影响：该组合包选定了随发行版交付的无 persona 提示词基座、工具集合与 DeepSeek 适配器，供各模式组合包进一步特化；它自身不贡献任何模型可见文本。
@@ -19,4 +25,5 @@ patch 在自身上按平台门控两个 shell 栈：`bash-sandbox`/`tool-bash` �
 ## 已知限制与暂缓事项
 
 - **patch 会替换整行 `config`**：profile 覆盖必须重述该行需要保留的每个字段；不存在深度合并层。
+- **禁用辅助调用以便利性换取显式出站授权**：回退标题仍可用，手动压缩仍是主动操作，但自动标题优化、自动上下文恢复与 Web 搜索都需要部署覆盖配置。
 - **Windows 的临时目录授权是按会话的私有子目录**——`workspace-write` 把写入限制在工作区与会话自己的 temp 子目录（`<temp>\dsh-<hash>`，受限子进程的 TMP/TEMP 被改写）；`read-only` 不授予任何临时目录写入权限。见 `@deepseek-ai/dsh-sandbox-windows-acl`。

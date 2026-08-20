@@ -79,9 +79,8 @@ export function recordFeedback(session: Session, text: string): void {
  * leaves no `feedback/record` event.
  * @param invocation - receiving agent, raw command input, and UI cancellation.
  * @param ctx - plugin context used to read the optional telemetry service.
- * @returns an acknowledgement containing the receiving session and anonymous
- * user ids plus the session-sharing disclosure, or a usage error when no
- * feedback text was supplied.
+ * @returns an acknowledgement containing the receiving session plus the
+ * session-sharing disclosure, or a usage error when no feedback text was supplied.
  */
 function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): CommandResult {
   if (invocation.rawInput.trim().length === 0) {

@@ -38,7 +38,7 @@ Every setting is optional. Top-level policy fields are defaults for every routed
 | `compactionRetries` | no (default `1`) | Extra attempts after the first when pressure remains above threshold. |
 | `maxOverflowRetries` | no (default `1`) | Maximum retries after canonical context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | no (default `[]`) | Exact `{ provider, model, ...partialPolicy }` overrides; matching uses both fields and does not depend on `listModels()`. |
-| `auto` | no (default `true`) | Register step-boundary pressure and overflow-recovery listeners. Set `false` for manual-only. |
+| `auto` | no (default `false`) | Register step-boundary pressure and overflow-recovery listeners. Enabling it authorizes auxiliary model requests carrying conversation context. |
 
 Every `modelPolicies` entry accepts the policy fields above except `auto` and `modelPolicies` itself. If an entry supplies either retention field, it replaces the default policy's retention choice; otherwise retention is inherited. Summarization provider/model remain a pair inside each entry.
 
@@ -64,7 +64,7 @@ export function apply(ctx: Context): void {
 }
 ```
 
-Loading the plugin registers `ctx.compaction`. Add [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure. The sibling [`dsh-command-compact`](../command-compact/README.md) calls `ctx.compaction.compactNow(...)`; programmatic callers may also use any seam operation directly.
+Loading the plugin registers `ctx.compaction`. Add [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) as a sibling before this plugin to enable the optional model-free pass. Automatic pressure and overflow recovery are disabled by default because summarization sends conversation context to an auxiliary model request; set `auto: true` only after disclosing that provider and input. The sibling [`dsh-command-compact`](../command-compact/README.md) calls `ctx.compaction.compactNow(...)`; programmatic callers may also use any seam operation directly.
 
 For example, the same compact plugin can safely serve models with different capacities and one target-specific policy:
 

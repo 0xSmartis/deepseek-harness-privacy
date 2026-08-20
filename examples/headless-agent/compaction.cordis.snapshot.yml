@@ -10,6 +10,7 @@
       - id: compaction-basic
         name: '@deepseek-ai/dsh-compaction-basic'
         config:
+          auto: true
           thresholdRatio: 0.99
           retainTokens: 20
           maxTokens: 32

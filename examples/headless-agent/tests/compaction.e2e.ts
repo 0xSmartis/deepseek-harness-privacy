@@ -36,6 +36,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       persona: SYSTEM_PROMPT,
       modelContextWindow: 2000,
       compact: {
+        auto: true,
         thresholdRatio: 0.5,
         retainTokens: 400,
         summarizationProvider: '',

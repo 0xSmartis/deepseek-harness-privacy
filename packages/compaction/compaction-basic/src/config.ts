@@ -92,7 +92,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     compactionRetries: config.compactionRetries ?? 1,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
-    auto: config.auto ?? true,
+    auto: config.auto ?? false,
   })
 }
 

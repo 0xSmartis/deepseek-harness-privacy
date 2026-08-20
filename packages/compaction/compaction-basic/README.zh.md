@@ -38,7 +38,7 @@
 | `compactionRetries` | 否（默认 `1`） | 压力仍高于阈值时，在首次尝试后进行的额外尝试次数。 |
 | `maxOverflowRetries` | 否（默认 `1`） | 规范上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
 | `modelPolicies` | 否（默认 `[]`） | 精确的 `{ provider, model, ...partialPolicy }` 覆盖；匹配使用两个字段，不依赖 `listModels()`。 |
-| `auto` | 否（默认 `true`） | 注册步骤边界压力与溢出恢复 listener。设为 `false` 则仅手动执行。 |
+| `auto` | 否（默认 `false`） | 注册步骤边界压力与溢出恢复 listener。启用它即授权携带会话上下文的辅助模型请求。 |
 
 每个 `modelPolicies` 配置项都接受上述策略字段，但不接受 `auto` 和 `modelPolicies` 自身。如果配置项提供任意一个保留字段，就替换默认策略的保留选择；否则继承保留设置。摘要提供方／模型在每个配置项内仍然成对。
 
@@ -64,7 +64,7 @@ export function apply(ctx: Context): void {
 }
 ```
 
-加载插件会注册 `ctx.compaction`。在该插件之前添加同级 [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) 以启用可选的不依赖模型的处理阶段。当 `auto: true`（默认）时，它会在 token 压力下自动压缩。同级 [`dsh-command-compact`](../command-compact/README.md) 调用 `ctx.compaction.compactNow(...)`；编程调用方也可以直接使用任一 seam 操作。
+加载插件会注册 `ctx.compaction`。在该插件之前添加同级 [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) 以启用可选的不依赖模型的处理阶段。自动压力处理与溢出恢复默认关闭，因为摘要会把会话上下文发送给一次辅助模型请求；仅在披露该提供方和输入后才设置 `auto: true`。同级 [`dsh-command-compact`](../command-compact/README.md) 调用 `ctx.compaction.compactNow(...)`；编程调用方也可以直接使用任一 seam 操作。
 
 例如，同一个压缩插件可以安全服务于容量不同的模型，并应用一项目标特定策略：
 
