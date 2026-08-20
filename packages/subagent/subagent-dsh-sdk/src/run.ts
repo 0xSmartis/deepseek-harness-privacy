@@ -6,7 +6,7 @@
  * flatten child failures into stop reasons, tear down to quiescence. The
  * child is spawned BY the SDK client rather than through `ctx.subprocess` —
  * the subprocess seam's documented exception for SDK-managed transports —
- * so this driver applies the seam's shared env scrub itself.
+ * so this driver applies the seam's shared inherited-environment policy itself.
  *
  * @module @deepseek-ai/dsh-subagent-dsh-sdk/run
  */
@@ -41,7 +41,7 @@ export interface SdkRunSpec {
    * Extra environment variables to ADD for the child (e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). Merged after
    * the seam's `scrubbedParentEnv()` base, so an explicit credential or
-   * current `DSH_*` fact survives while ambient namesakes never leak.
+   * current `DSH_*` fact survives while arbitrary ambient host state stays out.
    */
   env: Record<string, string>
   /** Bound (ms) on the protocol `shutdown` exchange during dispose. */

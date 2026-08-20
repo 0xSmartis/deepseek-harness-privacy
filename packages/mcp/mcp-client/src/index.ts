@@ -60,7 +60,7 @@ export interface StdioConfig {
   command: string
   /** Arguments passed directly, without shell interpolation. */
   args: string[]
-  /** Extra env vars merged on top of scrubbed ambient env. */
+  /** Extra env vars merged on top of the minimal operational inherited environment. */
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string

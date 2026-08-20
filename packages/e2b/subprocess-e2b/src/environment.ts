@@ -4,9 +4,9 @@ import { Buffer } from 'node:buffer'
 import { posix } from 'node:path'
 import { e2bControlEnvs } from '@deepseek-ai/dsh-e2b'
 import type { Sandbox } from '@deepseek-ai/dsh-e2b'
-import { SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
 
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const SENSITIVE_REMOTE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 
 function remoteEnvironmentEntries(raw: string): Array<readonly [string, string]> {
   const entries: Array<readonly [string, string]> = []
@@ -62,7 +62,7 @@ export async function readRemoteEnvironment(sandbox: Sandbox, signal?: AbortSign
 export function scrubRemoteEnvironment(raw: string): Map<string, string> {
   const environment = new Map<string, string>()
   for (const [name, value] of remoteEnvironmentEntries(raw)) {
-    if (name.startsWith('DSH_') || SENSITIVE_ENV_PATTERN.test(name)) continue
+    if (name.startsWith('DSH_') || SENSITIVE_REMOTE_ENV_PATTERN.test(name)) continue
     environment.set(name, value)
   }
   return environment
@@ -76,7 +76,7 @@ export function scrubRemoteEnvironment(raw: string): Map<string, string> {
 export function bootstrapEnvironment(raw: string): Record<string, string> {
   const environment: Record<string, string> = { TERM: 'dumb' }
   for (const [name] of remoteEnvironmentEntries(raw)) {
-    if (name.startsWith('DSH_') || SENSITIVE_ENV_PATTERN.test(name)) environment[name] = ''
+    if (name.startsWith('DSH_') || SENSITIVE_REMOTE_ENV_PATTERN.test(name)) environment[name] = ''
   }
   return environment
 }

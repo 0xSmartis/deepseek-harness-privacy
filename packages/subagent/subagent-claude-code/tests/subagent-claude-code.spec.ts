@@ -716,7 +716,7 @@ describe('task admission and package contracts', () => {
 
 describe('official spawn projection', () => {
   it('forwards command, arguments, cwd, environment, and signal exactly', () => {
-    vi.stubEnv('SDK_REMOVED_AMBIENT', 'ambient-value')
+    vi.stubEnv('LC_SDK_REMOVED_AMBIENT', 'ambient-value')
     const signal = new AbortController().signal
     const options = sdkSpawnOptions({
       command: '/official/claude',
@@ -729,7 +729,7 @@ describe('official spawn projection', () => {
       A: 'one',
       B: undefined,
       C: 'three',
-      SDK_REMOVED_AMBIENT: undefined,
+      LC_SDK_REMOVED_AMBIENT: undefined,
     }))
     const spawnSpec = claudeSpawnSpec(options, 321)
     expect(spawnSpec).toMatchObject({
@@ -743,7 +743,7 @@ describe('official spawn projection', () => {
       A: 'one',
       B: undefined,
       C: 'three',
-      SDK_REMOVED_AMBIENT: undefined,
+      LC_SDK_REMOVED_AMBIENT: undefined,
     }))
     const missingCwd = sdkSpawnOptions()
     delete missingCwd.cwd
@@ -830,9 +830,10 @@ describe('official spawn projection', () => {
 })
 
 describe('query options and result mapping', () => {
-  it('builds the fixed unattended options over the scrubbed environment', async () => {
+  it('builds the fixed unattended options over the allowlisted environment', async () => {
     vi.stubEnv('HOST_VISIBLE', 'visible')
     vi.stubEnv('HOST_SECRET_TOKEN', 'must-not-leak')
+    vi.stubEnv('HOST_PRIVATE_METADATA', 'must-not-leak')
     vi.stubEnv('DSH_INTERNAL', 'must-not-leak')
     const child = fakeChild()
     const spawn = vi.fn(() => child.handle)
@@ -873,6 +874,7 @@ describe('query options and result mapping', () => {
       ANTHROPIC_API_KEY: 'explicit-fake-key',
     })
     expect(options.env).not.toHaveProperty('HOST_SECRET_TOKEN')
+    expect(options.env).not.toHaveProperty('HOST_PRIVATE_METADATA')
     expect(options.env).not.toHaveProperty('DSH_INTERNAL')
     expect(options).not.toHaveProperty('settingSources')
 

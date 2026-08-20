@@ -149,7 +149,7 @@ MCP 仅保证工具名在[单个服务器内](https://modelcontextprotocol.io/sp
 
 ### 子进程环境（stdio 传输）
 
-以子进程服务边界共享的 `scrubbedParentEnv()` 为基础构建子进程环境；该基础环境会移除环境中匹配 `/KEY|PASSWORD|SECRET|TOKEN/i` 的名称以及 `DSH_*` 名称，然后在其上合并 `config.env`。显式配置的 env 覆盖在清洗后仍会保留。
+以子进程 seam 共享的 [`scrubbedParentEnv()` 操作性允许列表](../simplification/2026-08-20-allowlist-inherited-child-environment.md)为基础构建子进程环境，然后在其上合并 `config.env`。显式环境授权会保留，而主目录／配置路径、代理、凭据、`DSH_*` 与任意部署值默认缺失。
 
 ### 断连 / 崩溃
 

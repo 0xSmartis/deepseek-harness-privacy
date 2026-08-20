@@ -6,9 +6,9 @@ Status: implemented
 
 ## 问题
 
-钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.shell` 能力 seam 后面有一个完善的命令执行器（[dsh-shell](../../../../packages/shell/shell) → [dsh-bash-local](../../../../packages/shell/bash-local)），具备进程组终止、输出截断/spill 处理和凭证擦除功能。复用它来执行钩子意味着钩子桥接层无需重新实现子进程底层机制——但该 seam 此前无法写入 stdin 或设置额外 env。本次变更添加这两个输入。
+钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.shell` 能力 seam 后面有一个完善的命令执行器（[dsh-shell](../../../../packages/shell/shell) → [dsh-bash-local](../../../../packages/shell/bash-local)），具备进程组终止、输出截断/spill 处理和继承环境筛选。复用它来执行钩子意味着钩子桥接层无需重新实现子进程底层机制——但该 seam 此前无法写入 stdin 或设置额外 env。本次变更添加这两个输入。
 
-`stdin` 和 `env` 不构成新的模型能力，因为普通 shell 语法已经能提供两者。环境凭证由 `dsh-bash-local` 的子环境擦除机制保护，而非靠隐藏这些 Service Definition 字段；模型工具参数是静态 JSON，不会展开 shell 变量。因此这些字段服务于受信的进程内调用方（如钩子桥接层），它们需要传递结构化输入和 `CLAUDE_*` 变量，而不必将其嵌入模型可见的 shell 文本。环境变量规则见 [defensive-patterns.md](../../../../docs/defensive-patterns.md)。
+`stdin` 和 `env` 不构成新的模型能力，因为普通 shell 语法已经能提供两者。环境中的宿主状态通过 `dsh-subprocess` 的[最小继承环境](../simplification/2026-08-20-allowlist-inherited-child-environment.md)留在受管子进程之外，而不是靠隐藏这些 Service Definition 字段；模型工具参数是静态 JSON，不会展开 shell 变量。因此这些字段服务于受信的进程内调用方（如钩子桥接层），它们需要传递结构化输入和 `CLAUDE_*` 变量，而不必将其嵌入模型可见的 shell 文本。环境变量规则见 [defensive-patterns.md](../../../../docs/defensive-patterns.md)。
 
 ## 决策
 
@@ -18,7 +18,7 @@ Status: implemented
 
 1. **模型侧工具不暴露 `stdin` 和 `env`。** Shell 语法已覆盖这些需求，重复参数只会增加接口面而不带来权限隔离。工具仅从声明的模型参数、signal 和 owner 构建请求；受信的进程内调用方可以直接设置请求字段。harness 自有变量使用[托管环境决策](../feature/2026-07-10-agent-session-identity-and-log-location.md)规定的独立 `dshEnv` 通道，因此普通 `env` 无法替换它们。
 
-2. **`env` 在凭证擦除之后合并，因此调用方显式设置的条目即使具有凭证形态的名称也会胜出。** 后续的托管命名空间决策负责管理 `DSH_*`：这类环境条目会被移除，受信的 `dshEnv` 最后合并，因此普通 `env` 条目永远无法顶掉托管值。完整顺序为 `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → 普通 `env` → `dshEnv`。
+2. **`env` 在最小继承基底之后合并，因此调用方显式设置的每个条目都会胜出。** 后续的托管命名空间决策负责管理 `DSH_*`：环境中的这类条目不会进入基底，受信的 `dshEnv` 最后合并，因此普通 `env` 条目永远无法顶掉托管值。完整顺序为 `allowlist(process.env)` → `ENV_OVERRIDES` → 普通 `env` → `dshEnv`。
 
 3. **`stdin`/`env` 在已解析 spec 上是 required-absent-OK（普通 optional），而非像 `owner` 那样 required-but-nullable。** `owner` 之所以是 required-but-nullable，是因为*静默*缺失的 owner 会产生一个无主、跨会话可读的任务——一个安全隐患，显式的 `undefined` 可以防范。`stdin`/`env` 没有这种风险：缺失意味着「无 stdin / 无额外 env」，这是安全的常规情况（所有模型驱动的调用都如此）。因此它们保持普通 optional，与 `signal` 一致。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**可配置的环境秘密擦除。** 否决，属于推测性需求。受信调用方可以在擦除之后显式提供所需值，无需削弱默认的环境保护。
+**可配置的环境继承。** 否决，属于推测性需求。受信调用方可以在允许列表基底之后显式提供所需值，无需削弱默认的环境保护。
 
 ## 后果
 

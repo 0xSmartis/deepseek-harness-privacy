@@ -32,9 +32,9 @@ The child's working directory is an explicit resolution, never the harness proce
 
 ACP `StopReason` → harness `SubagentStopReason`: `end_turn`→`completed`, `max_tokens`→`max-tokens`, `refusal`→`refusal`, `cancelled`→`aborted`, `max_turn_requests`→`error` (no clean equivalent — the task did not finish), unknown→`error`. A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was requested); `result` never rejects on a child-level failure, per the seam contract.
 
-### Security: scrubbed child environment
+### Security: minimal child environment
 
-The child is a separate process, so it inherits an environment. Credential-shaped ambient vars (`/KEY|PASSWORD|SECRET|TOKEN/i`) are NOT forwarded by default — the parent harness's own secrets must not leak into a spawned process implicitly (the same policy the bash executor applies). The child's OWN credentials (it needs a model key) are supplied EXPLICITLY via `config.env`, layered AFTER the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental `AWS_SECRET_ACCESS_KEY` does not. Child stderr is inherited to the parent's stderr (diagnostics surface naturally); a spawn-level `error` event (e.g. ENOENT for a bad command) is captured and raced against the ACP drive, so a bad command settles `error` instead of crashing the parent with an unhandled error.
+The child is a separate process, so it receives an environment. The subprocess seam forwards only its [minimal operational allowlist](../simplification/2026-08-20-allowlist-inherited-child-environment.md) by default, keeping the parent Harness's home/config paths, proxies, credentials, `DSH_*`, and arbitrary deployment values out of the child. The child's own credentials are supplied explicitly through `config.env`, layered after the inherited base, so an intended `DEEPSEEK_API_KEY` survives. Child stderr is inherited to the parent's stderr (diagnostics surface naturally); a spawn-level `error` event (e.g. ENOENT for a bad command) is captured and raced against the ACP drive, so a bad command settles `error` instead of crashing the parent with an unhandled error.
 
 ## Testing
 
@@ -55,7 +55,7 @@ Persistent-process pooling (reuse a warm child across runs) is a performance opt
 
 ## Consequences
 
-Every run pays a fresh subprocess (spawn + `initialize` + `newSession`). The parent surfaces only the child's final answer: `session/update` thoughts and tool-call cards are consumed and dropped, and permission prompts never reach a human — the configured policy answers them. The child's environment is credential-scrubbed by default, so its own model key is supplied explicitly via `config.env`.
+Every run pays a fresh subprocess (spawn + `initialize` + `newSession`). The parent surfaces only the child's final answer: `session/update` thoughts and tool-call cards are consumed and dropped, and permission prompts never reach a human — the configured policy answers them. The child inherits only the operational allowlist by default, so its own model key and any required configuration location are supplied explicitly via `config.env`.
 
 ## Product-provider siblings
 

@@ -51,8 +51,8 @@ export interface Config {
   /**
    * Extra environment variables for the child process — e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG` naming its
-   * config. Forwarded on top of a credential-scrubbed copy of the parent
-   * env, so an explicit key here reaches the child while ambient secrets do
+   * config. Forwarded on top of the minimal operational parent environment,
+   * so an explicit key here reaches the child while ambient host state does
    * not leak implicitly.
    */
   env: Record<string, string>

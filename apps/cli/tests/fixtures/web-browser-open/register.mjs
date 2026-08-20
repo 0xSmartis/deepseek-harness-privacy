@@ -2,7 +2,10 @@ import { existsSync, rmSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { join } from 'node:path'
 
-const openerUrl = new URL('./open.mjs', import.meta.url).href
+const openerUrl = new URL('./open.mjs', import.meta.url)
+if (process.env.BROWSER_OPEN_TEST_FAILURE !== undefined) {
+  openerUrl.searchParams.set('failure', process.env.BROWSER_OPEN_TEST_FAILURE)
+}
 const exitMarker = join(process.cwd(), `.dsh-browser-open-${process.pid}`)
 
 const markerPoll = setInterval(() => {
@@ -14,7 +17,7 @@ markerPoll.unref()
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === 'open') return { shortCircuit: true, url: openerUrl }
+    if (specifier === 'open') return { shortCircuit: true, url: openerUrl.href }
     return nextResolve(specifier, context)
   },
 })

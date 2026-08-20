@@ -2,6 +2,6 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "prompt", "text": "Use the bash tool to run exactly: printf 'home=%s\\nlog=%s\\nshell=%s\\nsession=%s\\n' \"${DSH_HOME-unset}\" \"${DSH_SESSION_JSONL-unset}\" \"${DSH_SHELL-unset}\" \"${DSH_SESSION_ID-unset}\". Then reply with exactly PRIVATE_ENV_OK and stop." }
+    { "op": "prompt", "text": "Use the bash tool to run exactly: printf 'home=%s\\nlog=%s\\nmetadata=%s\\nshell=%s\\nsession=%s\\n' \"${HOME-unset}\" \"${DSH_SESSION_JSONL-unset}\" \"${PRIVATE_METADATA_PATH-unset}\" \"${DSH_SHELL-unset}\" \"${DSH_SESSION_ID-unset}\". Then reply with exactly PRIVATE_ENV_OK and stop." }
   ]
 }

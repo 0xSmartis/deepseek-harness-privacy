@@ -277,7 +277,10 @@ const SCENARIOS: Scenario[] = [
     name: 'private-shell-environment',
     hasModelTurn: true,
     recorded: false,
-    env: { DSH_SESSION_JSONL: '/ambient/session.jsonl' },
+    env: {
+      DSH_SESSION_JSONL: '/ambient/session.jsonl',
+      PRIVATE_METADATA_PATH: '/ambient/private-metadata',
+    },
   },
   {
     name: 'background-job-admission',

@@ -27,11 +27,11 @@ import type {
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 
 /**
- * Build a child environment: explicit caller entries override the scrubbed
+ * Build a child environment: explicit caller entries override the inherited
  * parent base using the target platform's environment-key semantics. A string
  * deliberately restores or overrides an entry; an explicit `undefined`
  * tombstone removes an ordinary ambient entry.
- * @param extra - explicit caller entries and tombstones, merged after the scrub.
+ * @param extra - explicit caller entries and tombstones, merged after the inherited base.
  * @returns the environment to hand to `spawn` for the child process.
  */
 export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {

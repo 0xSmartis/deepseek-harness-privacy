@@ -152,7 +152,7 @@ export interface ClaudeCodeRunSpec {
   readonly cwd: string
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: ClaudeCodePermissionMode
-  /** Explicit deployment/test environment layered after shared scrubbing. */
+  /** Explicit deployment/test environment layered after ambient filtering. */
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number

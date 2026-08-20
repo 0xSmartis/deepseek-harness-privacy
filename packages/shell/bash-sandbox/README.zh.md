@@ -20,7 +20,7 @@
 - **Runner 路径或 syscall 必须匹配。** 进程启动前，调用方拥有的 workdir 必须经独立验证可用，Node 必须报告 `ENOENT` 或 `EACCES`，并且错误必须符合以下一种形态：`error.path` 等于提供方返回的 `argv[0]`，同时 `syscall` 为 `'spawn'` 或精确的 `'spawn <runner>'`；或者 `error.path` 不存在，同时 `syscall` 为精确的 `'spawn <runner>'`。这样可以识别缺失的 runner、不可执行的 runner，或 shebang 解释器不可用的可执行脚本。没有精确错误路径的裸 `syscall: 'spawn'`、任何其他错误码、无效或不可用的 workdir、资源失败、无关 syscall 或无结构拒绝仍保留本地执行器的命令启动失败语义。前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带原始 spawn 错误详情，异步后台结算则会标记 `runnerFailed: true` 和 `denied: false`。如果 `SubprocessRuntime` 同步抛出同样能指明 runner 的 `ENOENT`／`EACCES` 形态，后台启动会抛出 `SANDBOX_UNAVAILABLE`；其他同步错误原样传播。进程启动后，先按整行精确匹配排除信息性行，随后规则的可选退出码检查和余下 stderr 中的一行致命诊断必须同时匹配。匹配结果优先于拒绝；前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带匹配到的致命行，已结算的后台进程则会标记 `process.sandbox.runnerFailed`，Bash 结果生成方通过通用 `job_output` 渲染它。无论走哪条路径，受限制的后台句柄都会保留自身的模式／强制执行事实，并释放每进程计数。
 - **部署回退，每次调用策略。** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) 为每次工具调用解析完整的 `SandboxExecutionPolicy`：调用会话提供自身的模式覆盖与不可变 cwd 根目录，部署配置则为无 agent（智能体）调用提供回退。已批准的升权只更改该策略的模式，会话根目录仍然附着其上。`resolve()` 把策略带入 spec，因此来自不同项目的重叠命令会在各自的根目录与模式下运行、分类和报告。能力事实 `ctx.shell.sandboxMode` 报告已配置的默认值，因此工具层只在装载该执行器时才公布升权；静态 bash 工具描述则单独负责拒绝与升权引导。
 - **网络策略目前只有拒绝模式。** 该执行器尚不能批准按目标地址限定的访问。
-- 进程机制（spawn、进程组终止、输出收集／spill、后台句柄、凭证清理）继承自 [`dsh-bash-local`](../bash-local/)；runner 选择位于 [`dsh-sandbox-local`](../../sandbox/sandbox-local/)。
+- 进程机制（spawn、进程组终止、输出收集／spill、后台句柄、继承环境筛选）继承自 [`dsh-bash-local`](../bash-local/)；runner 选择位于 [`dsh-sandbox-local`](../../sandbox/sandbox-local/)。
 
 该 seam 只报告拒绝：拒绝是一项结果事实，本执行器绝不自行协商权限。批准问题位于工具层（`dsh-tool-bash`），由它设置本包所遵守的模式覆盖值。
 

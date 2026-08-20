@@ -103,17 +103,18 @@ describe('acpContentText / toAcpPrompt', () => {
 })
 
 describe('child env layering (through the subprocess seam)', () => {
-  it('drops credential-shaped ambient vars but keeps the explicit extras', async () => {
+  it('drops arbitrary ambient vars but keeps explicit extras', async () => {
     process.env.ACP_TEST_AMBIENT_SECRET_TOKEN = 'leak-me'
+    process.env.ACP_TEST_AMBIENT_METADATA = 'leak-me-too'
     try {
-      // The spec.env layer merges after the seam's scrub, so the child's own
-      // explicitly-forwarded key survives while ambient credentials do not.
+      // The spec.env layer merges after the seam's allowlist, so the child's
+      // explicitly forwarded key survives while ambient host state does not.
       const running = spawnSubprocess({
         argv: [
           process.execPath,
           '--input-type=module',
           '--eval',
-          'process.stdout.write(JSON.stringify([process.env.ACP_TEST_AMBIENT_SECRET_TOKEN ?? "absent", process.env.DEEPSEEK_API_KEY]))',
+          'process.stdout.write(JSON.stringify([process.env.ACP_TEST_AMBIENT_SECRET_TOKEN ?? "absent", process.env.ACP_TEST_AMBIENT_METADATA ?? "absent", process.env.DEEPSEEK_API_KEY]))',
         ],
         cwd: process.cwd(),
         stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
@@ -121,16 +122,17 @@ describe('child env layering (through the subprocess seam)', () => {
         env: { DEEPSEEK_API_KEY: 'explicit' },
       })
       await running.done
-      expect(running.collected.stdout!.readFrom(0).text).toBe('["absent","explicit"]')
+      expect(running.collected.stdout!.readFrom(0).text).toBe('["absent","absent","explicit"]')
     } finally {
       delete process.env.ACP_TEST_AMBIENT_SECRET_TOKEN
+      delete process.env.ACP_TEST_AMBIENT_METADATA
     }
   })
 
   it('forwards explicit DSH_* config entries to the child', async () => {
     // A deployment sets child-harness facts like DSH_PERMISSION_MODE in
-    // config.env; the seam's scrub drops only the AMBIENT namesakes, so the
-    // explicit entry merges after it and the child must see the value.
+    // config.env; the explicit entry merges after ambient filtering, so the
+    // child must see the value.
     const ctx = await setup({ MOCK_ECHO_ENV: 'DSH_ACP_TEST_FACT', DSH_ACP_TEST_FACT: 'managed' })
     const parent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
     const run = await ctx.subagents.start('acp', {

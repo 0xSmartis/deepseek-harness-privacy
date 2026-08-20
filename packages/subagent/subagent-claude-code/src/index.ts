@@ -39,8 +39,8 @@ export interface Config {
   /** Provider name on `ctx.subagents` (default `claude-code`). */
   providerName?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the subprocess seam's minimal
+   * operational parent environment.
    */
   env?: Record<string, string>
   /**

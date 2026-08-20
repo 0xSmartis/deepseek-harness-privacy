@@ -32,9 +32,9 @@ subagent seam（[seam Agent Note](2026-06-21-subagent-capability-seam.md)）的�
 
 ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`max_tokens`→`max-tokens`、`refusal`→`refusal`、`cancelled`→`aborted`、`max_turn_requests`→`error`（无对等语义，任务未完成）、未知→`error`。spawn/传输/RPC 失败时，结果为 `error`（如果已请求取消则为 `aborted`）；按 seam 约定，`result` 在子 agent 级别失败时从不 reject。
 
-### 安全：清洗子进程环境
+### 安全：最小子进程环境
 
-子 agent 是独立进程，因此会继承环境变量。形如凭证的环境变量（`/KEY|PASSWORD|SECRET|TOKEN/i`）默认不转发——父 harness 自身的密钥不得隐式泄露到 spawn 启动的进程中（与 bash 执行器采用的策略相同）。子 agent 自己的凭证（它需要模型密钥）通过 `config.env` 显式提供，在清洗之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留，而偶然存在的 `AWS_SECRET_ACCESS_KEY` 则不会。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令的结果为 `error` 而非以未处理错误崩溃父进程。
+子 agent 是独立进程，因此会收到环境变量。子进程 seam 默认只转发[最小操作性允许列表](../simplification/2026-08-20-allowlist-inherited-child-environment.md)，从而让父 Harness 的主目录／配置路径、代理、凭据、`DSH_*` 与任意部署值留在子进程之外。子 agent 自己的凭据通过 `config.env` 显式提供，在继承基底之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令的结果为 `error` 而非以未处理错误崩溃父进程。
 
 ## 测试
 
@@ -55,7 +55,7 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ## 后果
 
-每次运行都要付出一个全新子进程的代价（spawn + `initialize` + `newSession`）。父进程仅暴露子 agent 的最终回答：`session/update` 中的思考和工具调用卡片被消费后丢弃，权限提示从不到达人类——由配置的策略应答。子进程环境默认经过凭证清洗，因此其自身的模型密钥需通过 `config.env` 显式提供。
+每次运行都要付出一个全新子进程的代价（spawn + `initialize` + `newSession`）。父进程仅暴露子 agent 的最终回答：`session/update` 中的思考和工具调用卡片被消费后丢弃，权限提示从不到达人类——由配置的策略应答。子进程默认只继承操作性允许列表，因此其自身的模型密钥与所需配置位置需通过 `config.env` 显式提供。
 
 ## 兄弟产品提供方
 

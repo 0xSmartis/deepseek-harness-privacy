@@ -39,7 +39,7 @@ The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same
 | `serverName` | both | yes | Namespace for this server's model-facing tool names; `[A-Za-z0-9_-]{1,32}`, unique across live instances |
 | `command` | stdio | yes | Executable to spawn |
 | `args` | stdio | no | Arguments passed to the command |
-| `env` | stdio | no | Extra env vars merged on top of scrubbed ambient env |
+| `env` | stdio | no | Extra env vars merged on top of the minimal operational environment inherited by managed children |
 | `cwd` | stdio | no | Working directory for the child process |
 | `url` | http | yes | MCP server URL |
 | `headers` | http | no | Extra headers (e.g. auth tokens) |

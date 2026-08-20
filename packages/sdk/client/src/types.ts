@@ -30,8 +30,8 @@ export interface HarnessClientOptions {
   /**
    * The complete child environment. `undefined` inherits the parent env
    * verbatim; passing an object replaces it entirely, so callers own
-   * credential policy (see `scrubbedParentEnv` in `@deepseek-ai/dsh-subprocess`
-   * for the shared scrub-then-merge base).
+   * environment policy (see `scrubbedParentEnv` in `@deepseek-ai/dsh-subprocess`
+   * for the shared allowlist-then-merge base).
    */
   env?: NodeJS.ProcessEnv
   /** Per-request timeout (ms); `undefined` waits indefinitely (a turn can legitimately run long). */

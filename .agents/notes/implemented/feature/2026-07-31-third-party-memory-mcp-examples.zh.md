@@ -27,7 +27,7 @@ Status: implemented
 | 账户、认证、模型、embedding、存储初始化 | 否 | 是 |
 | 提供方数据迁移、重试、崩溃恢复 | 否 | 是 |
 
-通用 stdio 传输会清除环境中名称类似凭据的变量和 `DSH_*` 变量，同时继承其他环境变量。基线示例仅添加必需的覆盖项；可选的提供方密钥必须添加到 `config.env`，或配置在提供方自己的文件中。
+通用 stdio 传输只继承子进程 seam 的[最小操作性环境](../simplification/2026-08-20-allowlist-inherited-child-environment.md)。基线示例会添加必需覆盖；提供方无法通过其他方式发现秘密、主目录、端点和配置路径时，必须把它们添加到 `config.env`。
 
 ## 版本固定、存储与身份
 

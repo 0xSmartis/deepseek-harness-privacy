@@ -1,5 +1,5 @@
 /**
- * Execute command hooks through `ctx.shell`, using its credential scrub,
+ * Execute command hooks through `ctx.shell`, using its ambient allowlist,
  * process-group cancellation, and timeout machinery. The bridge supplies the
  * trusted stdin payload and dialect environment, then this module decodes the
  * captured outcome.
@@ -56,7 +56,7 @@ export interface RunHookResult {
 /**
  * Run `hook` with serialized stdin and decode its outcome. A hook-specific
  * timeout in seconds overrides the default; trusted environment entries merge
- * after the executor scrub. Infrastructure rejection becomes an outcome with
+ * after the executor's minimal inherited environment. Infrastructure rejection becomes an outcome with
  * no exit code, so this function never throws or crashes the calling turn.
  * @param bash - The executor service the command runs through.
  * @param hook - the configured command; its `timeoutSec` (wire unit: seconds) overrides the default timeout.

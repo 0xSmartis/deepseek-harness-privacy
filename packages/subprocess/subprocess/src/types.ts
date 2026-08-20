@@ -94,11 +94,11 @@ export interface SubprocessSpawnSpec {
    */
   signal?: AbortSignal | undefined
   /**
-   * Explicit environment entries merged onto the implementation's scrubbed
+   * Explicit environment entries merged onto the implementation's filtered
    * parent base (see `scrubbedParentEnv`), with no namespace validation. A
-   * string is a deliberate caller opt-in, so a forwarded credential-shaped
-   * entry or current `DSH_*` fact survives the scrub; `undefined` is a
-   * tombstone that removes an ordinary ambient entry from the child.
+   * string is a deliberate caller opt-in, so a forwarded credential or other
+   * entry survives the ambient filter; `undefined` is a tombstone that removes
+   * an inherited entry from the child.
    */
   env?: NodeJS.ProcessEnv | undefined
 }
@@ -206,7 +206,7 @@ export interface SubprocessTerminalSpawnSpec {
   argv: readonly string[]
   /** Working directory in this subprocess provider's execution world. */
   cwd: string
-  /** Explicit environment layered after the provider's ambient scrub. */
+  /** Explicit environment layered after the provider filters ambient state. */
   env?: Record<string, string> | undefined
   /** Initial terminal row count. */
   rows: number

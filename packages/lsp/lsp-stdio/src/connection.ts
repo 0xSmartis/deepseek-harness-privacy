@@ -22,7 +22,7 @@ export interface ConnectionSpec {
   readonly args: readonly string[]
   /** The child's working directory (the canonical workspace). */
   readonly cwd: string
-  /** Explicit child environment overrides; the subprocess provider owns its ambient scrub. */
+  /** Explicit child environment overrides; the subprocess provider owns ambient filtering. */
   readonly env: Record<string, string>
   /** Largest single framed message accepted from the server. */
   readonly maxMessageBytes: number
@@ -98,7 +98,7 @@ export class LspConnection {
         stderr: { maxBytes: spec.maxStderrBytes },
       },
       graceMs: spec.killGraceMs,
-      // The seam merges explicit config entries after its ambient scrub, so a
+      // The seam merges explicit config entries after ambient filtering, so a
       // configured credential or DSH_* fact reaches the child deliberately.
       env: spec.env,
     })

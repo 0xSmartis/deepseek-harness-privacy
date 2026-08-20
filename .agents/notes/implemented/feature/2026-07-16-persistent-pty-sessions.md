@@ -40,7 +40,7 @@ Agent-scope disposal closes registrations first, then awaits quiescent teardown 
 
 A registered `shell` backend constrains how a terminal starts; it does not constrain commands typed after startup. `dsh-terminal-bash` therefore applies two protections before spawning:
 
-- It supplies only terminal-specific environment overrides; the mounted subprocess provider applies the shared credential-shaped-name scrub before merging them.
+- It supplies only terminal-specific environment overrides; the mounted subprocess provider applies the [shared operational allowlist](../simplification/2026-08-20-allowlist-inherited-child-environment.md) before merging them.
 - It requires the shared `ctx.sandboxPolicy`. At spawn, the backend resolves the owner's effective session mode over the deployment default; `danger-full-access` starts the shell directly, while confined modes require a same-world `ctx.sandbox` provider and wrap the shell argv once. That mode and workspace root remain the process boundary for the PTY lifetime. A write that would change the effective `sandbox/mode` is rejected before commit while the owner has any open PTY or unpublished spawn, with an instruction to wait for creation to settle and close those sessions first; same-effective-mode writes remain valid. The pending reservation spans backend setup through publication, so there is no race in which a wider terminal appears after a downgrade. `danger-full-access` is the existing explicit unconfined choice rather than a PTY-specific bypass.
 
 Sandboxing confines local process effects but does not make arbitrary shell input safe: network calls and other external side effects remain governed by deployment policy. Tool descriptions state that PTY sessions are less auditable than one-shot tools and should be used only when persistence or interactive stdin is necessary.
@@ -158,7 +158,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 - Per-file coverage pins owner fencing, concurrent reservations, cancellation during pre-write inspection, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, rejection of pre-write stdin waits and delayed earlier prompts, the configured handoff grace holding the idle fallback past one poll and its rejection below `pollIntervalMs`, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
 - Subprocess process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
-- Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
+- Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, inherited-environment filtering, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, subsystem pages, generated catalogs, and the website API describe the same shipped surface.
 
@@ -174,7 +174,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 **A daemonized descendant can leave the local provider's captured tree.** A process that reparents before teardown is no longer discoverable from the `node-pty` root. The local terminal primitive accepts that cleanup gap instead of risking SID-wide signals to unrelated processes.
 
-**A shell can cause external side effects.** Session sandboxing and environment scrubbing reduce local exposure but do not undo pushes, API calls, or messages. Deployments that cannot tolerate those effects must omit PTY or add network policy.
+**A shell can cause external side effects.** Session sandboxing and minimal environment inheritance reduce local exposure but do not undo pushes, API calls, or messages. Deployments that cannot tolerate those effects must omit PTY or add network policy.
 
 **Process loss destroys terminal state.** In-process sessions do not survive a harness crash or restart, and raw scrollback is not durable. Important work must be committed to files or another durable system.
 

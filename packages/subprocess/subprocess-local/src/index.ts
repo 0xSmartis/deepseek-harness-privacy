@@ -30,7 +30,7 @@ import { LocalTerminalHandle } from './terminal.ts'
 /**
  * Local subprocess service: detached process trees, Node-shaped stdio
  * dispositions (raw pipes, inherit, bounded tail-keep collection with spill
- * files), credential-scrubbed environment, and tree-scoped signalling with
+ * files), minimal inherited environment, and tree-scoped signalling with
  * SIGTERM→grace→SIGKILL escalation, plus synchronous final termination during
  * JavaScript-observable host exit.
  */

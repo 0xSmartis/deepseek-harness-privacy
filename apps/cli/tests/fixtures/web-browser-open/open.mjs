@@ -19,9 +19,8 @@ setTimeout(() => {
 `
 
 export default async function open(url) {
-  if (process.env.BROWSER_OPEN_TEST_FAILURE !== undefined) {
-    throw new Error(process.env.BROWSER_OPEN_TEST_FAILURE)
-  }
+  const failure = new URL(import.meta.url).searchParams.get('failure')
+  if (failure !== null) throw new Error(failure)
   const response = await fetch(url)
   const html = await response.text()
   console.log(`dsh browser-open: ${JSON.stringify({

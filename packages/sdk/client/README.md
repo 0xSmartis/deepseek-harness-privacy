@@ -31,7 +31,7 @@ The protocol client under the owned-run API: explicit `start()`/`initialize()`/`
 
 `close()` requests protocol `shutdown` (bounded by `shutdownTimeoutMs`, default 1000 ms), then walks a stdin-EOF → SIGTERM → SIGKILL ladder (`disposeEofGraceMs` default 6000, `disposeGraceMs` default 3000) until the process has actually exited. The ladder is private to this client: it runs outside any harness context, so it cannot ride the [`dsh-subprocess`](../../subprocess/README.md) service — the seam's documented exception for SDK-managed transports. It is idempotent, and a closed client refuses reuse.
 
-`HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own credential policy — `scrubbedParentEnv` from `dsh-subprocess` is the shared scrub base for isolation-minded launches.
+`HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own environment policy. Isolation-minded launches use `scrubbedParentEnv` from `dsh-subprocess`, which keeps only operational command lookup, OS, locale, terminal, timezone, and temporary-directory variables before the caller adds deliberate overrides.
 
 ## Model Experience
 

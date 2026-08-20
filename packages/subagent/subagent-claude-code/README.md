@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | Key | Default | Meaning |
 |---|---|---|
 | `providerName` | `claude-code` | Non-empty registry name on `ctx.subagents`; each mounted instance needs a unique value. |
-| `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
+| `env` | `{}` | Explicit SDK/CLI environment layered over the shared minimal operational inherited environment. |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this Provider instance. |
 | `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
 
@@ -39,7 +39,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | `plan` | Run in native planning mode, deny execution approval, and return the completed plan as the final answer. |
 | `bypassPermissions` | Explicitly set the SDK's dangerous confirmation and bypass permission checks. |
 
-Production omits `pathToClaudeCodeExecutable`, so Agent SDK 0.3.220 selects the matching native `claude` or `claude.exe` from its own platform package and passes that absolute command through the custom-spawn hook to `dsh-subprocess`. The provider does not inspect `PATH`, implement platform selection, or fall back to a host `claude`. Native settings and authentication remain authoritative, while `permissionMode` is the only query-level policy override. The plugin does not select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or token intended for the child must be supplied there. Non-credential endpoint variables such as `ANTHROPIC_BASE_URL`, along with ordinary ambient values such as `PATH` and `HOME`, remain inherited unless overridden; `PATH` does not choose the Claude executable.
+Production omits `pathToClaudeCodeExecutable`, so Agent SDK 0.3.220 selects the matching native `claude` or `claude.exe` from its own platform package and passes that absolute command through the custom-spawn hook to `dsh-subprocess`. The provider does not inspect `PATH`, implement platform selection, or fall back to a host `claude`. Native settings and authentication remain authoritative when discoverable without ambient environment state or deliberately supplied through the Provider's `env`, while `permissionMode` is the only query-level policy override. The plugin does not select a model, create a product home, log in, or probe an account. Only the subprocess seam's minimal operational environment is inherited before the explicit `env` overlay, so API keys, tokens, endpoints such as `ANTHROPIC_BASE_URL`, `HOME`, product configuration paths, proxies, and arbitrary deployment values intended for the child must be supplied there; inherited `PATH` still does not choose the Claude executable.
 
 This package is an optional Profile Bundle. Install it into the target Profile, then restart that Profile; installation brings the pinned Agent SDK and one compatible platform CLI payload into that Profile, while the declared `cordis.patch.yml` layer registers only the dormant `claude-code` Host provider and starts no Claude process. Removing the package withdraws that provider and its private runtime closure on the next Profile start.
 

@@ -1311,7 +1311,7 @@ export interface LspLocalServerConfig {
   extensionToLanguage: Record<string, string>
   /** Arguments passed to the executable (no shell). Default `[]`. */
   args?: string[]
-  /** Extra env vars merged on top of the scrubbed ambient env. Default `{}`. */
+  /** Extra env vars merged on top of the minimal operational inherited environment. Default `{}`. */
   env?: Record<string, string>
   /** Static `initialize` options forwarded to the server. Default `null`. */
   initializationOptions?: unknown
@@ -1356,7 +1356,7 @@ export interface StdioConfig {
   command: string
   /** Arguments passed directly, without shell interpolation. */
   args: string[]
-  /** Extra env vars merged on top of scrubbed ambient env. */
+  /** Extra env vars merged on top of the minimal operational inherited environment. */
   env: Record<string, string>
   /** Working directory for the child process. */
   cwd: string
@@ -2148,9 +2148,9 @@ export interface Config {
   permission: PermissionPolicy
   /**
    * Extra environment variables for the child process — e.g. the child
-   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of a credential-scrubbed
-   * copy of the parent env, so an explicit key here reaches the child while
-   * ambient secrets do not leak implicitly.
+   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of the minimal
+   * operational parent environment, so an explicit key here reaches the child
+   * while ambient host state does not leak implicitly.
    */
   env: Record<string, string>
   /**
@@ -2182,8 +2182,8 @@ export interface Config {
   /** Provider name on `ctx.subagents` (default `claude-code`). */
   providerName?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the subprocess seam's minimal
+   * operational parent environment.
    */
   env?: Record<string, string>
   /**
@@ -2215,8 +2215,8 @@ export interface Config {
   /** Provider name on `ctx.subagents` (default `codex`). */
   providerName?: string
   /**
-   * Explicit environment entries layered over the subprocess seam's
-   * credential-scrubbed parent environment.
+   * Explicit environment entries layered over the subprocess seam's minimal
+   * operational parent environment.
    */
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */
@@ -2267,8 +2267,8 @@ export interface Config {
   /**
    * Extra environment variables for the child process — e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG` naming its
-   * config. Forwarded on top of a credential-scrubbed copy of the parent
-   * env, so an explicit key here reaches the child while ambient secrets do
+   * config. Forwarded on top of the minimal operational parent environment,
+   * so an explicit key here reaches the child while ambient host state does
    * not leak implicitly.
    */
   env: Record<string, string>

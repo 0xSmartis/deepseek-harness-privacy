@@ -40,11 +40,11 @@ function shellArgv(command: string): string[] {
     case 'echo "${TERM:-unset}"': return node('console.log(process.env.TERM ?? "unset")')
     case 'echo "$EXTRA_ONE/$EXTRA_TWO"': return node('console.log(process.env.EXTRA_ONE + "/" + process.env.EXTRA_TWO)')
     case 'echo "$EXPLICIT_OVERRIDE_PASSWORD"': return node('console.log(process.env.EXPLICIT_OVERRIDE_PASSWORD)')
-    case 'echo "${SUBPROCESS_TOMBSTONE_PROBE:-absent}"': return node('console.log(process.env.SUBPROCESS_TOMBSTONE_PROBE ?? "absent")')
+    case 'echo "${LC_TOMBSTONE_PROBE:-absent}"': return node('console.log(process.env.LC_TOMBSTONE_PROBE ?? "absent")')
     case 'echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"':
       return node('console.log("[" + [process.env.DSH_STALE ?? "absent", process.env.DSH_SHELL, process.env.DSH_SESSION_ID].join("|") + "]")')
-    case 'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}]"':
-      return node('console.log("[" + [process.env.DSH_TEST_API_KEY ?? "absent", process.env.DSH_TEST_TOKEN ?? "absent", process.env.SUBPROCESS_TEST_PASSWORD ?? "absent", process.env.DSH_TEST_PLAIN ?? "absent"].join("|") + "]")')
+    case 'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}|${SUBPROCESS_TEST_PLAIN:-absent}|${HOME:-absent}|${LC_DSH_TEST:-absent}]"':
+      return node('console.log("[" + [process.env.DSH_TEST_API_KEY ?? "absent", process.env.DSH_TEST_TOKEN ?? "absent", process.env.SUBPROCESS_TEST_PASSWORD ?? "absent", process.env.DSH_TEST_PLAIN ?? "absent", process.env.SUBPROCESS_TEST_PLAIN ?? "absent", process.env.HOME ?? "absent", process.env.LC_DSH_TEST ?? "absent"].join("|") + "]")')
     case 'printf "%.0sx" $(seq 1 500)': return node('process.stdout.write("x".repeat(500))')
     case 'printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2':
       return node('process.stdout.write("x".repeat(500)); process.stderr.write("e".repeat(500))')
@@ -386,29 +386,29 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     expect(piped.stdout.text).toBe('socket\n')
   })
 
-  it('merges ordinary extra env entries onto the scrubbed environment', async () => {
+  it('merges ordinary extra env entries onto the allowlisted environment', async () => {
     const result = await finish(spawnSubprocess(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
       env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })))
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
-  it('lets an explicit tombstone remove an ordinary ambient env entry', async () => {
-    process.env.SUBPROCESS_TOMBSTONE_PROBE = 'ambient-value'
+  it('lets an explicit tombstone remove an allowlisted ambient env entry', async () => {
+    process.env.LC_TOMBSTONE_PROBE = 'ambient-value'
     try {
       const result = await finish(spawnSubprocess(spec(
-        'echo "${SUBPROCESS_TOMBSTONE_PROBE:-absent}"',
-        { env: { SUBPROCESS_TOMBSTONE_PROBE: undefined } },
+        'echo "${LC_TOMBSTONE_PROBE:-absent}"',
+        { env: { LC_TOMBSTONE_PROBE: undefined } },
       )))
       expect(result.stdout.text).toBe('absent\n')
     } finally {
-      delete process.env.SUBPROCESS_TOMBSTONE_PROBE
+      delete process.env.LC_TOMBSTONE_PROBE
     }
   })
 
-  it('an explicit extra env entry overrides the credential scrub', async () => {
-    // EXPLICIT_OVERRIDE_PASSWORD matches the credential scrub pattern, yet an explicit
-    // entry is still honored — the scrub only drops AMBIENT process.env creds.
+  it('an explicit extra env entry bypasses ambient inheritance filtering', async () => {
+    // Trusted callers can deliberately restore any value after the ambient
+    // allowlist, including a credential required by the child operation.
     const result = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_PASSWORD"', {
       env: { EXPLICIT_OVERRIDE_PASSWORD: 'explicit-wins' },
     })))
@@ -1037,28 +1037,32 @@ describe('abort edge cases', () => {
   })
 })
 
-describe('environment and spill-file hardening', () => {
-  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
+describe('environment allowlisting and spill-file hardening', () => {
+  it('inherits only operational variables into child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.SUBPROCESS_TEST_PASSWORD = 'password-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
+    process.env.SUBPROCESS_TEST_PLAIN = 'private-metadata'
+    process.env.LC_DSH_TEST = 'kept-locale'
     try {
       const result = await finish(spawnSubprocess(spec(
-        'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}]"',
+        'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}|${SUBPROCESS_TEST_PLAIN:-absent}|${HOME:-absent}|${LC_DSH_TEST:-absent}]"',
       )))
-      expect(result.stdout.text.trim()).toBe('[absent|absent|absent|absent]')
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent|absent|absent|absent|kept-locale]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
       delete process.env.SUBPROCESS_TEST_PASSWORD
       delete process.env.DSH_TEST_PLAIN
+      delete process.env.SUBPROCESS_TEST_PLAIN
+      delete process.env.LC_DSH_TEST
     }
   })
 
-  it('forwards explicit DSH_* env entries while scrubbing ambient ones', async () => {
+  it('forwards explicit DSH_* env entries without inheriting ambient ones', async () => {
     // Both facts through one explicit map: the ambient DSH_STALE is dropped by
-    // the scrub, and the deliberately supplied current values merge after it.
+    // the inherited base, and the deliberately supplied current values merge after it.
     process.env.DSH_STALE = 'old-value'
     try {
       const result = await finish(spawnSubprocess(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {

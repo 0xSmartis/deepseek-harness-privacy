@@ -54,7 +54,7 @@ function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
 }
 
 function childEnvironment(spec: TerminalBackendSpawnSpec, dialect: ShellDialect): Record<string, string> {
-  // The subprocess provider supplies its own scrubbed ambient base; these are
+  // The subprocess provider supplies its own inherited operational base; these are
   // deliberate terminal-specific overrides layered after it.
   const common = {
     TERM: 'dumb',

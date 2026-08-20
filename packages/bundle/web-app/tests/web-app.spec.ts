@@ -318,7 +318,7 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('scrubs the helper environment and reports helper spawn or exit failures', async () => {
+  it('minimizes the helper environment and reports helper spawn or exit failures', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'must-not-reach-browser')
     vi.stubEnv('DSH_HOME', '/must-not-reach-browser')
     const completed = launcher()

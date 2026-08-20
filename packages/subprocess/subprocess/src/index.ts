@@ -9,7 +9,6 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { DSH_ENV_PREFIX } from './types.ts'
 import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
 
@@ -34,33 +33,45 @@ export type {
   SubprocessTerminalSpawnSpec,
 } from './types.ts'
 
-/**
- * Credential-shaped environment names are NOT forwarded to children (the
- * harness's own `DEEPSEEK_API_KEY`/secrets must not leak into a spawned
- * process implicitly). One heuristic for every in-repo spawner; a
- * deliberately supplied entry survives because explicit env layers merge
- * after the scrub.
- */
-export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
+/** Environment names required for ordinary command lookup, locale, terminals, and approved temporary storage. */
+const INHERITED_ENV_NAMES = new Set([
+  'COMSPEC',
+  'LANG',
+  'LANGUAGE',
+  'NO_COLOR',
+  'PATH',
+  'PATHEXT',
+  'SYSTEMROOT',
+  'TEMP',
+  'TERM',
+  'TMP',
+  'TMPDIR',
+  'TZ',
+  'WINDIR',
+])
+
+/** Whether one parent variable belongs to the minimal operational child environment. */
+function inheritsEnvironmentName(name: string): boolean {
+  const normalized = process.platform === 'win32' ? name.toUpperCase() : name
+  return INHERITED_ENV_NAMES.has(normalized) || normalized.startsWith('LC_')
+}
 
 /**
- * The ambient parent environment minus credential-shaped names and minus all
- * `DSH_*` names — the canonical base every harness child starts from. `PATH`,
- * `HOME`, locale, and proxy variables survive, so child CLIs run normally;
- * harness identity never leaks implicitly (a deliberately forwarded
- * credential or current `DSH_*` fact goes through the spec's explicit `env`,
- * which merges after this scrub). Both scrubs match case-insensitively:
- * Windows environment names are case-insensitive, so a parent `dsh_*` entry
- * would otherwise survive and read back as `$env:DSH_*` in the child;
- * deliberate lowercase `dsh_*` names on POSIX are implausible. Exported as a plain function so spawners
- * that cannot route through the service (node-pty backends, SDK-managed
- * transports) share the one scrub definition.
+ * The minimal ambient environment inherited by Harness children. It admits
+ * only command lookup, locale, terminal, time-zone, operating-system bootstrap,
+ * and temporary-directory variables. Home/config paths, proxies, credentials,
+ * Harness state, and arbitrary deployment values stay in the host unless a
+ * trusted caller supplies them through the spec's explicit `env` overlay.
+ * Windows names are matched case-insensitively because the target environment
+ * is case-insensitive there. Exported as a plain function so spawners that
+ * cannot route through the service (node-pty backends, SDK-managed transports)
+ * share the same inheritance rule.
  * @returns a fresh environment object safe to hand to a child spawn.
  */
 export function scrubbedParentEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
+    if (value !== undefined && inheritsEnvironmentName(key)) env[key] = value
   }
   return env
 }
@@ -106,7 +117,7 @@ export abstract class SubprocessRuntime extends Service {
 
   /**
    * Resolve one configured executable in this provider's execution world.
-   * Absolute paths are verified; bare names use the provider's scrubbed PATH
+   * Absolute paths are verified; bare names use the provider's inherited PATH
    * plus explicit environment overrides. Relative paths containing separators
    * are rejected: the resolution base is undefined, so providers fail loud
    * instead of guessing.

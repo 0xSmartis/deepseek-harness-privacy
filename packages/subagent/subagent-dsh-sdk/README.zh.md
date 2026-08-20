@@ -33,7 +33,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 | `provider` | `deepseek-official` | 写入子进程 `initialize` 的提供方路由。 |
 | `model` | `deepseek-v4-flash` | 写入子进程 `initialize` 的模型。 |
 | `maxTokens` | 适配器／提供方路由默认值 | 写入子进程 `initialize` 的单次请求输出 token 上限；对子运行时的根 agent 及其进程内后代生效。 |
-| `env` | `{}` | 在凭据擦除后的父环境之上叠加的显式子环境（例如子进程自己的 `DEEPSEEK_API_KEY`，或 `DSH_CORDIS_CONFIG`）。 |
+| `env` | `{}` | 在子进程 seam 的最小操作性继承环境之上叠加的显式子环境（例如子进程自己的 `DEEPSEEK_API_KEY`，或 `DSH_CORDIS_CONFIG`）。 |
 | `shutdownTimeoutMs` | `1000` | dispose 期间协议 `shutdown` 交换的时限。 |
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限。 |
 | `disposeGraceMs` | `3000` | 终止后的退出确认窗口；POSIX 在 SIGTERM 之后、SIGKILL 之前也等待同样时长。 |
@@ -55,7 +55,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 ## 进程边界
 
-子进程环境以 [`dsh-subprocess`](../../subprocess/README.md) seam 的 `scrubbedParentEnv()` 为基础，先移除疑似凭据和名称为 `DSH_*` 的环境变量，再合并显式 `config.env` 值。子进程由 SDK 客户端 spawn，而不是经由 `ctx.subprocess` spawn（这是 subprocess README 中记录的 SDK 托管传输例外），因此本后端会自行执行环境清理。JSON-RPC 协议格式才是真正的序列化边界。
+子进程环境以 [`dsh-subprocess`](../../subprocess/README.md) seam 的 `scrubbedParentEnv()` 为基础；该基底只保留操作性命令查找、操作系统、区域设置、终端、时区和临时目录变量，随后再合并显式 `config.env` 值。子进程由 SDK 客户端 spawn，而不是经由 `ctx.subprocess` spawn（这是 subprocess README 中记录的 SDK 托管传输例外），因此本后端会自行应用继承环境策略。JSON-RPC 协议格式才是真正的序列化边界。
 
 本包没有默认导出。否则 Cordis loader 解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 

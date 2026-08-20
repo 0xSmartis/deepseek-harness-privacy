@@ -99,9 +99,10 @@ describe('bash tool through the agent loop', () => {
     vi.stubEnv('DSH_HOME', join(root, 'dsh-home'))
     vi.stubEnv('DSH_SESSION_JSONL', join(root, 'ambient-session.jsonl'))
     vi.stubEnv('DSH_STALE_PARENT', 'stale')
+    vi.stubEnv('PRIVATE_METADATA_PATH', join(root, 'private-metadata'))
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', {
-        command: 'printf \'%s\\n%s\\n%s\\n%s\\n%s\\n\' "${DSH_HOME-unset}" "$DSH_SHELL" "$DSH_SESSION_ID" "${DSH_SESSION_JSONL-unset}" "${DSH_STALE_PARENT-unset}"',
+        command: 'printf \'%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n\' "${HOME-unset}" "${DSH_HOME-unset}" "$DSH_SHELL" "$DSH_SESSION_ID" "${DSH_SESSION_JSONL-unset}" "${DSH_STALE_PARENT-unset}" "${PRIVATE_METADATA_PATH-unset}"',
         description: 'inspect session environment',
       }),
       textResponse('Session environment inspected.'),
@@ -119,7 +120,7 @@ describe('bash tool through the agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const result = findEvent(events(agent), 'tool/result')
-    expect(resultText(result)).toBe('unset\n1\nsession-env-id\nunset\nunset\n')
+    expect(resultText(result)).toBe('unset\nunset\n1\nsession-env-id\nunset\nunset\nunset\n')
     await ctx.sessions.flush(agent.session)
     expect(existsSync(location!.path)).toBe(true)
     const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }

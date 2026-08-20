@@ -29,7 +29,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 | `args` | `[]` | Command arguments. |
 | `cwd` | parent session cwd | Working-directory override for the child process and its ACP session; must be non-empty, a relative value resolves against the harness launch directory at load, and the result must name a directory the harness can enter. |
 | `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first `allow_once` or `allow_always` option. |
-| `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment. |
+| `env` | `{}` | Explicit child environment layered over the subprocess seam's minimal operational inherited environment. |
 | `disposeEofGraceMs` | `6000` | Positive grace after stdin EOF before platform termination; it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 | `disposeGraceMs` | `3000` | Positive POSIX grace after SIGTERM before SIGKILL (Windows force-terminates directly); it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 
@@ -57,7 +57,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 
 ## Process boundary
 
-The child spawns through the [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam: credential-shaped ambient variables and ambient `DSH_*` names are removed by the shared scrub, then explicit `config.env` values merge after it (an intended `DEEPSEEK_API_KEY` survives, and a `DSH_*` deployment fact such as `DSH_PERMISSION_MODE` reaches the child the same way — the scrub drops only its stale ambient namesake), stderr is inherited to the parent's own stream, and disposal applies this plugin's EOF window before the subprocess-owned SIGTERM→SIGKILL escalation and whole-tree join. The ACP wire is the real serialization boundary; same-process subagent values are not defensively cloned.
+The child spawns through the [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam: only its minimal operational environment is inherited, then explicit `config.env` values merge afterward. Home/config paths, proxies, credentials, `DSH_*`, and arbitrary deployment values therefore require deliberate grants; an intended `DEEPSEEK_API_KEY` or `DSH_PERMISSION_MODE` supplied in `config.env` survives. Stderr is inherited to the parent's own stream, and disposal applies this plugin's EOF window before the subprocess-owned SIGTERM→SIGKILL escalation and whole-tree join. The ACP wire is the real serialization boundary; same-process subagent values are not defensively cloned.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 

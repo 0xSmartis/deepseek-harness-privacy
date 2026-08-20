@@ -29,7 +29,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 | `args` | `[]` | 命令参数。 |
 | `cwd` | 父会话 cwd | 子进程及其 ACP 会话的工作目录覆盖值；不得为空。相对值会在加载时以 harness 启动目录为基准解析，结果必须指向 harness 可以进入的目录。 |
 | `permission` | `reject` | 自动回答权限请求：拒绝，或选择第一个 `allow_once` 或 `allow_always` 选项。 |
-| `env` | `{}` | 显式子进程环境，叠加到已清理凭据的父进程环境之上。 |
+| `env` | `{}` | 显式子进程环境，叠加到子进程 seam 的最小操作性继承环境之上。 |
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限时间须为正值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
 | `disposeGraceMs` | `3000` | POSIX 在 SIGTERM 后、SIGKILL 前的宽限时间（Windows 直接强制终止），须为正值且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
 
@@ -57,7 +57,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则先应用本插件的 EOF 时间窗，再由子进程责任方执行 SIGTERM→SIGKILL 升级并等待整棵进程树退出。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：只继承最小操作性环境，随后再合并显式 `config.env` 值。因此主目录／配置路径、代理、凭据、`DSH_*` 与任意部署值都需要有意授予；在 `config.env` 中提供的 `DEEPSEEK_API_KEY` 或 `DSH_PERMISSION_MODE` 会保留下来。stderr 会继承到父进程自身的流，dispose 则先应用本插件的 EOF 时间窗，再由子进程责任方执行 SIGTERM→SIGKILL 升级并等待整棵进程树退出。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
 本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 

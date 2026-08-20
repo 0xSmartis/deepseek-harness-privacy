@@ -39,7 +39,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `serverName` | 两者 | 是 | 该服务器面向模型工具名称的 namespace；`[A-Za-z0-9_-]{1,32}`，在存活实例中唯一 |
 | `command` | stdio | 是 | 要 spawn 的可执行文件 |
 | `args` | stdio | 否 | 传给命令的参数 |
-| `env` | stdio | 否 | 合并到已清理环境中的额外环境变量 |
+| `env` | stdio | 否 | 合并到受管子进程所继承的最小操作性环境之上的额外环境变量 |
 | `cwd` | stdio | 否 | 子进程工作目录 |
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |

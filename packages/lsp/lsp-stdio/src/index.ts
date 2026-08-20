@@ -60,7 +60,7 @@ export interface LspLocalServerConfig {
   extensionToLanguage: Record<string, string>
   /** Arguments passed to the executable (no shell). Default `[]`. */
   args?: string[]
-  /** Extra env vars merged on top of the scrubbed ambient env. Default `{}`. */
+  /** Extra env vars merged on top of the minimal operational inherited environment. Default `{}`. */
   env?: Record<string, string>
   /** Static `initialize` options forwarded to the server. Default `null`. */
   initializationOptions?: unknown
@@ -117,9 +117,9 @@ function throwTeardownFailures(results: readonly PromiseSettledResult<void>[], m
 }
 
 /**
- * Register the configured stdio LSP providers. Resolves every executable at load (after credential
- * scrubbing) before publishing any provider; each process launches lazily on its first matching
- * query.
+ * Register the configured stdio LSP providers. Resolves every executable at load against the
+ * inherited operational environment plus explicit overrides before publishing any provider; each
+ * process launches lazily on its first matching query.
  * @param ctx - the plugin context carrying `fs`, `lsp`, and `subprocess`.
  * @param config - the resolved plugin configuration (schemastery has filled every default).
  */

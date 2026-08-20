@@ -52,8 +52,8 @@ describe('LspConnection', () => {
   })
 
   it('forwards explicit DSH_* env entries to the child', async () => {
-    // A configured DSH_* fact must reach the child: the seam scrubs only the
-    // ambient namespace, and the explicit entry merges after that scrub. The
+    // A configured DSH_* fact must reach the child: the seam does not inherit
+    // the ambient namespace, and the explicit entry merges after that base. The
     // fixture echoes the named variable back as hover text.
     const conn = connect({ LSP_FAKE_ECHO_ENV: 'DSH_LSP_TEST_FACT', DSH_LSP_TEST_FACT: 'managed' })
     await conn.request('initialize', { capabilities: {} })

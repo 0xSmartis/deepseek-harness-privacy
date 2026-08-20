@@ -27,7 +27,7 @@ These third-party configurations are provided as interoperability examples only.
 | Account, auth, model, embedding, storage initialization | No | Yes |
 | Vendor data migration, retry, crash recovery | No | Yes |
 
-The generic stdio transport scrubs ambient credential-shaped and `DSH_*` variables while inheriting other ambient variables. Baseline examples add only required overrides; optional provider secrets must be added to `config.env` or configured in the provider's own files.
+The generic stdio transport inherits only the subprocess seam's [minimal operational environment](../simplification/2026-08-20-allowlist-inherited-child-environment.md). Baseline examples add required overrides; provider secrets, homes, endpoints, and configuration paths must be added to `config.env` when the provider cannot discover them otherwise.
 
 ## Pins, storage, and identity
 

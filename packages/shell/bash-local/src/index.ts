@@ -22,7 +22,7 @@ import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek
  * interactive terminal features that would garble tool output (the same set
  * Codex hardcodes; Claude Code achieves it via TERM=dumb). Bash-tool policy —
  * merged first into the spawn's explicit env, so a trusted caller's own entry
- * still wins; the subprocess service applies its credential scrub independently.
+ * still wins; the subprocess service applies its ambient allowlist independently.
  */
 export const ENV_OVERRIDES = {
   NO_COLOR: '1',
@@ -159,7 +159,7 @@ export class LocalBashExecutor extends ShellExecutor {
       stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
       // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
-      // no config default. The subprocess service owns the scrub and merge order.
+      // no config default. The subprocess service owns inheritance and merge order.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
@@ -192,7 +192,7 @@ export class LocalBashExecutor extends ShellExecutor {
       signal,
       // One explicit env map for the seam, layered so the trusted dshEnv
       // snapshot beats both the caller's env and the terminal overrides; the
-      // subprocess service merges the whole map after its ambient scrub.
+      // subprocess service merges the whole map after filtering ambient state.
       env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
     }
   }

@@ -1164,10 +1164,10 @@ describe('createTransport', () => {
     expect(transport).toHaveProperty('close')
   })
 
-  it('scrubs sensitive env vars and forwards the rest', () => {
+  it('builds a stdio transport over the minimal ambient environment', () => {
     const original = { ...process.env }
     try {
-      process.env.SAFE_VAR = 'kept'
+      process.env.SAFE_VAR = 'not-inherited'
       process.env.MY_SECRET = 'hidden'
       process.env.API_KEY = 'hidden'
       process.env.AUTH_TOKEN = 'hidden'
@@ -1197,7 +1197,7 @@ describe('createTransport', () => {
     }
   })
 
-  it('merges explicit env on top of scrubbed ambient env', () => {
+  it('merges explicit env on top of the operational inherited environment', () => {
     const config: Config = {
       transport: 'stdio',
       serverName: 'srv',

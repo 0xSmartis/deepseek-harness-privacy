@@ -31,7 +31,7 @@ console.log(result.finalResponse)
 
 `close()` 先请求协议 `shutdown`（受 `shutdownTimeoutMs` 约束，默认 1000 毫秒），然后走 stdin-EOF → SIGTERM → SIGKILL 阶梯（`disposeEofGraceMs` 默认 6000，`disposeGraceMs` 默认 3000）直到进程真正退出。该阶梯为本客户端私有：它运行在任何 harness 上下文之外，无法搭乘 [`dsh-subprocess`](../../subprocess/README.md) 服务——即该 seam 所记录的 SDK 托管传输例外。幂等，已关闭的客户端拒绝复用。
 
-`HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
+`HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；环境策略归调用方。面向隔离的启动使用 `dsh-subprocess` 的 `scrubbedParentEnv`；它只保留操作性命令查找、操作系统、区域设置、终端、时区和临时目录变量，随后由调用方添加有意覆盖。
 
 ## 模型体验
 

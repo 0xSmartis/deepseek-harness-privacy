@@ -149,7 +149,7 @@ A unified `execute` handler for all tools from one MCP server:
 
 ### Subprocess environment (stdio transport)
 
-Build the child environment from the subprocess seam's shared `scrubbedParentEnv()` base, which removes ambient names matching `/KEY|PASSWORD|SECRET|TOKEN/i` and ambient `DSH_*` names, then merge `config.env` on top. Explicit env overrides survive the scrub.
+Build the child environment from the subprocess seam's shared [`scrubbedParentEnv()` operational allowlist](../simplification/2026-08-20-allowlist-inherited-child-environment.md), then merge `config.env` on top. Explicit environment grants survive while home/config paths, proxies, credentials, `DSH_*`, and arbitrary deployment values remain absent by default.
 
 ### Disconnection / crash
 

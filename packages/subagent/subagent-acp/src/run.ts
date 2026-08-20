@@ -47,12 +47,10 @@ export interface AcpRunSpec {
   permission: PermissionPolicy
   /**
    * Extra environment variables to ADD for the child (e.g. the child harness's
-   * `DEEPSEEK_API_KEY`). Merged on top of the subprocess seam's scrubbed
-   * parent env. A value here is forwarded even if its name matches the
-   * credential-scrub pattern (an explicit opt-in for the child's own creds).
+   * `DEEPSEEK_API_KEY`). Merged on top of the subprocess seam's minimal
+   * operational parent environment. Every value here is an explicit opt-in.
    * Explicit `DSH_*` entries are deployment-owned facts for the child harness
-   * (e.g. `DSH_PERMISSION_MODE`); they simply merge after the scrub that
-   * dropped their stale ambient namesakes.
+   * (e.g. `DSH_PERMISSION_MODE`); they merge after ambient filtering.
    */
   env: Record<string, string>
   /**
@@ -70,8 +68,8 @@ export interface AcpRunSpec {
   disposeGraceMs: number
   /**
    * Spawn function from the subprocess seam (`ctx.subprocess.spawn`), so the
-   * child rides the shared scrub, tree-scoped teardown, and service-owned
-   * lifetime instead of a package-local child_process path.
+   * child rides the shared environment policy, tree-scoped teardown, and
+   * service-owned lifetime instead of a package-local child_process path.
    */
   spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /**
@@ -204,8 +202,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   const id = SessionId(randomUUID())
 
   // Keep diagnostics on parent stderr ('inherit'); only ACP output contributes
-  // to the result. The seam's scrub drops ambient credentials and DSH_* names
-  // while spec.env (the child's own key, its deployment facts) merges after it.
+  // to the result. The seam keeps only operational ambient values while
+  // spec.env (the child's own key and deployment facts) merges after it.
   const child = spec.spawn({
     argv: [spec.command, ...spec.args],
     cwd: spec.cwd,

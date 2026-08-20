@@ -24,7 +24,7 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
 |---|---|---|
 | `command` | (required) | Executable to spawn — absolute, or resolved on the child PATH at load. Launch uses no shell. |
 | `args` | `[]` | Arguments passed to the executable. |
-| `env` | `{}` | Extra env merged on top of the credential-scrubbed ambient env (vars matching `KEY`/`PASSWORD`/`SECRET`/`TOKEN` are not forwarded); an explicit `DSH_*` entry merges after the seam's scrub of ambient ones. |
+| `env` | `{}` | Extra env merged on top of the minimal operational environment inherited by the subprocess seam; use it to grant any required home/config path, proxy, credential, `DSH_*`, or deployment value explicitly. |
 | `extensionToLanguage` | (required) | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). |
 | `initializationOptions` | `null` | Static `initialize` options forwarded to the server. |
 | `configuration` | `null` | Static answer to every `workspace/configuration` item. |
@@ -34,7 +34,7 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
 | `shutdownTimeoutMs` | `5000` | Graceful `shutdown`/`exit` budget before escalation. |
 | `killGraceMs` | `2000` | Grace for request cancellation and for SIGTERM→SIGKILL escalation. |
 
-`servers` must contain at least one entry, and every id must be non-empty. Timer budgets must be positive integers no greater than Node's `2_147_483_647` ms timer limit. All executables resolve at load after credential scrubbing; a bad later entry prevents every provider from registering. Processes launch lazily on the first matching query.
+`servers` must contain at least one entry, and every id must be non-empty. Timer budgets must be positive integers no greater than Node's `2_147_483_647` ms timer limit. All executables resolve at load against the inherited operational environment plus explicit `env`; a bad later entry prevents every provider from registering. Processes launch lazily on the first matching query.
 
 ## Protocol behavior
 

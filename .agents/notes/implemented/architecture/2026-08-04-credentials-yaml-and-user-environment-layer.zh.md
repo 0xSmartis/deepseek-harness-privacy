@@ -31,7 +31,7 @@ OPENAI_API_KEY: sk-…
 
 ## Consequences
 
-- 放弃的：留在 `$DSH_HOME/.env` 里的密钥会被物化进 `process.env`，因而会按[子进程凭据清洗](../../../../packages/subprocess/subprocess/README.md)的规则抵达子进程，而不再留在 provider 内部。它仍是 `.credentials.yaml` 之下的可写后备值；需要由 Harness 拥有并隔离的密钥属于受管文档，后者永不物化。
+- 已约束：留在 `$DSH_HOME/.env` 里的密钥会被物化进 `process.env` 供受信任进程内消费方使用，但受管本地子进程不会通过子进程 seam 的[最小操作性环境](../simplification/2026-08-20-allowlist-inherited-child-environment.md)继承它。它仍是 `.credentials.yaml` 之下的可写后备值；需要由 Harness 拥有并隔离的密钥属于受管文档，后者永不物化。
 - 换来的：用户 `.env` 里的非机密值终于生效，这正是最初的缺陷；文档格式可以拒绝它无法承担的内容；`0600` 保护的是一个只存密钥的文件，而不是一个我们同时叫用户往里写普通配置的文件。
 - 提供方写入时使用的 `0600` 同样约束它读取的内容：在 POSIX 上，只要文档带有任何 group 或 other 权限位，就会在读取内容之前让启动失败——启动时与每次 reload 都检查，诊断里给出 `chmod 600` 的修复命令。Windows 没有可检查的 mode（其 ACL 无法在此表达），因此跳过该检查而不是伪造它。
 - `0600` 这条边界仍然只挡其他 OS 用户、挡不住模型，本次拆分未改变这一点——该限制及 keychain 提供方的延后项归 [提供方 README](../../../../packages/credentials/credentials-local/README.md) 所有。

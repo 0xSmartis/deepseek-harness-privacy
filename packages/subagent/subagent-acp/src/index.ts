@@ -47,9 +47,9 @@ export interface Config {
   permission: PermissionPolicy
   /**
    * Extra environment variables for the child process — e.g. the child
-   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of a credential-scrubbed
-   * copy of the parent env, so an explicit key here reaches the child while
-   * ambient secrets do not leak implicitly.
+   * harness's own `DEEPSEEK_API_KEY`. Forwarded on top of the minimal
+   * operational parent environment, so an explicit key here reaches the child
+   * while ambient host state does not leak implicitly.
    */
   env: Record<string, string>
   /**

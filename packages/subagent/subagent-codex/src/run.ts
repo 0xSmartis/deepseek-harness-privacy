@@ -139,7 +139,7 @@ export interface CodexRunSpec {
   readonly cwd: string
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: CodexPermissionMode
-  /** Explicit deployment/test environment layered after the shared scrub. */
+  /** Explicit deployment/test environment layered after ambient filtering. */
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number

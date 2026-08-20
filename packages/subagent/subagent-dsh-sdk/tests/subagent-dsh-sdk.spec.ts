@@ -2,7 +2,7 @@
  * Keyless integration tests for the SDK subagent backend. Each spawns a REAL
  * subprocess — the SDK client package's scripted fake runtime — and drives it
  * through the REAL backend over real stdio JSON-RPC, so the handshake, the
- * turn round-trip, stop-reason mapping, cancellation, env scrubbing, and
+ * turn round-trip, stop-reason mapping, cancellation, environment filtering, and
  * quiescent disposal are all exercised end to end. No model, no key.
  */
 
@@ -127,11 +127,12 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     }
   })
 
-  it('scrubs ambient credentials but forwards explicit config env', async () => {
+  it('drops arbitrary ambient state but forwards explicit config env', async () => {
     process.env.DSH_TEST_AMBIENT_SECRET_KEY = 'leak-me-not'
+    process.env.DSH_TEST_AMBIENT_METADATA = 'leak-me-neither'
     try {
       const ctx = await setup({
-        FAKE_ECHO_ENV: 'DSH_TEST_AMBIENT_SECRET_KEY,DEEPSEEK_API_KEY',
+        FAKE_ECHO_ENV: 'DSH_TEST_AMBIENT_SECRET_KEY,DSH_TEST_AMBIENT_METADATA,DEEPSEEK_API_KEY',
         DEEPSEEK_API_KEY: 'explicit-child-key',
         FAKE_TEXT: 'done',
       })
@@ -139,11 +140,13 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       const result = await run.result
       const answer = text(result.output)
       expect(answer).toContain('DSH_TEST_AMBIENT_SECRET_KEY=\n')
+      expect(answer).toContain('DSH_TEST_AMBIENT_METADATA=\n')
       expect(answer).toContain('DEEPSEEK_API_KEY=explicit-child-key')
       await run.dispose()
       await ctx.fiber.dispose()
     } finally {
       delete process.env.DSH_TEST_AMBIENT_SECRET_KEY
+      delete process.env.DSH_TEST_AMBIENT_METADATA
     }
   })
 

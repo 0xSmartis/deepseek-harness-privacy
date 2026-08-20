@@ -27,7 +27,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 | 配置键 | 默认值 | 含义 |
 |---|---|---|
 | `providerName` | `claude-code` | `ctx.subagents` 中的非空注册名称；每个已挂载实例都需要唯一值。 |
-| `env` | `{}` | 显式指定的 SDK/CLI 环境，叠加在由共享机制清除凭证后的父环境之上。 |
+| `env` | `{}` | 显式指定的 SDK/CLI 环境，叠加在共享的最小操作性继承环境之上。 |
 | `permissionMode` | `dontAsk` | 为该提供方实例的每次运行固定原生非交互权限策略。 |
 | `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)；随后资源释放会等待整棵进程树退出。 |
 
@@ -39,7 +39,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 | `plan` | 使用原生规划模式，拒绝执行审批，并把完整计划作为最终答案返回。 |
 | `bypassPermissions` | 显式设置 SDK 的危险确认并跳过权限检查。 |
 
-生产环境会省略 `pathToClaudeCodeExecutable`，因此 Agent SDK 0.3.220 会从自己的平台包中选择匹配的原生 `claude` 或 `claude.exe`，再通过 custom-spawn 钩子把该绝对命令交给 `dsh-subprocess`。提供方不会检查 `PATH`、重复实现平台选择，也不会回退到宿主 `claude`。原生设置与身份验证继续是权威来源，而 `permissionMode` 是唯一的 query 级策略覆盖。本插件不选择模型、不创建产品主目录、不执行登录，也不探测账户。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被清除，因此供子进程使用的 API 密钥或 token 必须在该配置中显式提供。除非被覆盖，`ANTHROPIC_BASE_URL` 等非凭证端点变量以及 `PATH` 和 `HOME` 等普通环境变量仍会被继承；`PATH` 不参与选择 Claude 可执行文件。
+生产环境会省略 `pathToClaudeCodeExecutable`，因此 Agent SDK 0.3.220 会从自己的平台包中选择匹配的原生 `claude` 或 `claude.exe`，再通过 custom-spawn 钩子把该绝对命令交给 `dsh-subprocess`。提供方不会检查 `PATH`、重复实现平台选择，也不会回退到宿主 `claude`。原生设置与身份验证在无需环境状态即可发现或通过提供方 `env` 有意提供时继续是权威来源，而 `permissionMode` 是唯一的 query 级策略覆盖。本插件不选择模型、不创建产品主目录、不执行登录，也不探测账户。显式 `env` 覆盖之前只继承子进程 seam 的最小操作性环境，因此供子进程使用的 API 密钥、token、`ANTHROPIC_BASE_URL` 等端点、`HOME`、产品配置路径、代理与任意部署值都必须在该配置中提供；继承的 `PATH` 仍不参与选择 Claude 可执行文件。
 
 本包是可选的 Profile Bundle。将它安装进目标 Profile 后重启该 Profile；安装会把锁定的 Agent SDK 与一个兼容的平台 CLI 载荷带入该 Profile，而包所声明的 `cordis.patch.yml` 层只注册休眠的 `claude-code` Host provider，不会启动 Claude 进程。移除该包后，下一次 Profile 启动会撤回这一 provider 及其私有运行时闭包。
 
@@ -140,7 +140,7 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 
 - **每次运行均新建一个 query 和一个进程**：不支持续接、恢复、池化、进度流或产品会话持久化。
 - **静态选择实例**：Profile 配置项固定提供方名称与工具绑定；调用无法动态选择提供方，而且每个公开工具都需要唯一的 `toolName`。
-- **宿主设置有意保持权威**：项目和用户设置可以改变模型、工具与行为；本提供方不提供经过筛选或与宿主环境隔离的生产模式。
+- **显式可发现的原生设置保持权威**：项目和用户设置可以改变模型、工具与行为；依赖主目录、配置路径或端点环境变量的设置必须由 Profile 显式授予。
 - **身份验证与账户状态仍由原生机制管理**：Bundle 会提供 CLI，但不会创建账户、登录或改写 Claude 设置；配置与身份验证失败会公开其生命周期阶段与安全的 `unknown` 回退，而不会增加单独的公开分类。
 - **委派时必须存在 SDK 平台载荷**：省略 optional dependencies 的安装、不受支持的平台以及缺失或损坏的载荷都会在第一次 query 时失败；不会回退到宿主 CLI。
 - **没有人工交互路径**：`AskUserQuestion` 被禁用，权限提示会被拒绝，MCP elicitation 会被拒绝，阻塞对话会快速失败而不会挂起。
