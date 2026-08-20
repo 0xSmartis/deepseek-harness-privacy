@@ -274,6 +274,12 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
   {
+    name: 'private-shell-environment',
+    hasModelTurn: true,
+    recorded: false,
+    env: { DSH_SESSION_JSONL: '/ambient/session.jsonl' },
+  },
+  {
     name: 'background-job-admission',
     hasModelTurn: true,
     recorded: false,

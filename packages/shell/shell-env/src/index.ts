@@ -9,12 +9,9 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-shell'
-import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-session-persistence'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -24,17 +21,6 @@ declare module '@deepseek-ai/cordis' {
 
 export const name = 'shell-env'
 export const inject: string[] = []
-
-/** Plugin config (all optional — the built-in facts resolve without defaults). */
-export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
-}
-
-/** Runtime configuration schema for the shell-env plugin. */
-export const Config: z<Config> = z.object({
-  dshHome: z.string(),
-})
 
 /** Model-visible metadata for one managed `DSH_*` environment variable. */
 export interface BashEnvVariable {
@@ -70,9 +56,7 @@ export interface BashEnvVariableInfo extends BashEnvVariable {
 
 const DSH_SHELL_KEY = `${DSH_ENV_PREFIX}SHELL` as const
 const DSH_SESSION_ID_KEY = `${DSH_ENV_PREFIX}SESSION_ID` as const
-const DSH_SESSION_JSONL_KEY = `${DSH_ENV_PREFIX}SESSION_JSONL` as const
 const RESERVED_BASH_ENV_KEYS = new Set<DshEnvironmentKey>([
-  DSH_HOME_ENV,
   DSH_SHELL_KEY,
   DSH_SESSION_ID_KEY,
 ])
@@ -89,16 +73,13 @@ const BASH_ENV_KEY_SUFFIX = /^[A-Z][A-Z0-9_]*$/
 export class ShellEnvRegistry extends Service {
   private readonly contributors = new Map<string, BashEnvContributor>()
   private readonly keyOwners = new Map<DshEnvironmentKey, string>()
-  private readonly dshHome: string
 
   /**
    * Create and install the `ctx.shellEnv` service.
    * @param ctx - Cordis context that owns the service and registrations.
-   * @param config - home-directory configuration for the built-in variables.
    */
-  constructor(ctx: Context, config: Config = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'shellEnv')
-    this.dshHome = resolveDshHome(config.dshHome)
   }
 
   /**
@@ -151,7 +132,6 @@ export class ShellEnvRegistry extends Service {
    */
   collect(execution: ToolExecution): DshEnvironment {
     const values: Record<DshEnvironmentKey, string> = {
-      [DSH_HOME_ENV]: this.dshHome,
       [DSH_SHELL_KEY]: '1',
     }
     if (execution.agent !== undefined) {
@@ -193,25 +173,9 @@ export class ShellEnvRegistry extends Service {
 }
 
 /**
- * Load the shell-env plugin: register the `ctx.shellEnv` service and the
- * shell-agnostic persistence contributor (`DSH_SESSION_JSONL`).
+ * Load the shell-env plugin and register the `ctx.shellEnv` service.
  * @param ctx - Cordis context that owns the service and registrations.
- * @param config - home-directory configuration for the built-in variables.
  */
-export function apply(ctx: Context, config: Config = {}): void {
-  const registry = new ShellEnvRegistry(ctx, config)
-  registry.register({
-    name: 'session-persistence',
-    variables: {
-      [DSH_SESSION_JSONL_KEY]: {
-        description: 'Absolute target path of the current session JSONL when the active persistence backend provides one.',
-      },
-    },
-    resolve(execution) {
-      const agent = execution.agent
-      if (agent === undefined) return {}
-      const location = ctx.get('sessionPersistence')?.locate(agent.session.header)
-      return location?.kind === 'jsonl' ? { [DSH_SESSION_JSONL_KEY]: location.path } : {}
-    },
-  })
+export function apply(ctx: Context): void {
+  new ShellEnvRegistry(ctx)
 }

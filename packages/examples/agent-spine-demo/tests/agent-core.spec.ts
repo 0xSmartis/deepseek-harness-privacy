@@ -589,7 +589,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
   })
 
-  it('shares top-level dshHome between local skills and the managed bash environment', async () => {
+  it('uses top-level dshHome for local skills without exposing it to model shells', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-home-'))
     const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-agents-'))
     await mkdir(join(home, 'skills'), { recursive: true })
@@ -610,7 +610,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       name: 'bash',
       arguments: { command: 'true' },
     }
-    expect(ctx.shellEnv.collect(execution)).toMatchObject({ DSH_HOME: home, DSH_SHELL: '1' })
+    expect(ctx.shellEnv.collect(execution)).toEqual({ DSH_SHELL: '1' })
     await ctx.fiber.dispose()
   })
 

@@ -303,5 +303,5 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](subprocess.md) · [ToolExecution](tools.md)
 
-Source: [`packages/shell/shell-env/src/index.ts:89`](../../packages/shell/shell-env/src/index.ts)
+Source: [`packages/shell/shell-env/src/index.ts:73`](../../packages/shell/shell-env/src/index.ts)
 <!-- END GENERATED cordis-surface -->

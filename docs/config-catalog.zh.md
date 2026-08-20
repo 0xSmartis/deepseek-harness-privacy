@@ -59,7 +59,7 @@ export interface Config {
   toolOrder?: string[]
   /** Tool-registry config — its presentation `mode` (forwarded through agent-spine-demo; see dsh-tools). */
   tools?: ToolsConfig
-  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  /** DeepSeek Harness home directory used for local skill discovery. */
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
@@ -216,7 +216,7 @@ export type PresetTrust = 'system' | 'user'
  * `persona`, and `toolOrder` to the system-prompt plugin (the fixed opener,
  * dynamic-context policy, deployment persona, and explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
+ * `dshHome` to local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * agent-instructions loader, `jobs` to the process-local job provider, and
@@ -247,7 +247,7 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
-  /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
+  /** DeepSeek Harness home directory used by local skill discovery. */
   dshHome?: string
   /** Deterministic fallback and accepted-title limits; omission uses the bundle's example policy. */
   sessionTitle?: SessionTitleConfig
@@ -1945,20 +1945,6 @@ export interface Config {
 
 来源：[`packages/settings/settings-file/src/index.ts:21`](../packages/settings/settings-file/src/index.ts)
 
-<a id="deepseek-aidsh-shell-env"></a>
-
-## `@deepseek-ai/dsh-shell-env`
-
-```ts config-catalog
-/** Plugin config (all optional — the built-in facts resolve without defaults). */
-export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
-}
-```
-
-来源：[`packages/shell/shell-env/src/index.ts:29`](../packages/shell/shell-env/src/index.ts)
-
 <a id="deepseek-aidsh-skill"></a>
 
 ## `@deepseek-ai/dsh-skill`
@@ -3248,6 +3234,7 @@ export interface Config {
 - `@deepseek-ai/dsh-session-log-export` — 需要 `commands`（[`packages/session-query/session-log-export/src/index.ts`](../packages/session-query/session-log-export/src/index.ts)）
 - `@deepseek-ai/dsh-session-projection`（[`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts)）
 - `@deepseek-ai/dsh-session-stats` — 需要 `sessionProjections`（[`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts)）
+- `@deepseek-ai/dsh-shell-env`（[`packages/shell/shell-env/src/index.ts`](../packages/shell/shell-env/src/index.ts)）
 - `@deepseek-ai/dsh-skill-badge` — 需要 `skills`（[`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts)）
 - `@deepseek-ai/dsh-storage`（[`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts)）
 - `@deepseek-ai/dsh-subagent`（[`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts)）

@@ -1,4 +1,4 @@
-# Agent Note: 向工具与钩子公开 agent 会话标识和 JSONL 位置
+# Agent Note: 向 shell 公开 agent 会话标识并向钩子公开 transcript 位置
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-agent（智能体）可以通过 `session.header.cwd` 识别其工作区，但使用 bash 的模型无法可靠识别当前调用所属的会话，也无法找到记录该调用的持久 transcript（文本记录）。搜索 `./.sessions` 等同于猜测部署配置和 JSONL 布局；自定义根目录、替代持久化后端、恢复、fork，以及并发运行的父子 agent，都会让这种猜测失效。钩子同样需要 transcript 位置，而未来的插件也可能需要向 shell 命令公开其他由 harness 所有的环境事实。
+agent（智能体）可以通过 `session.header.cwd` 识别其工作区，但使用 bash 的模型无法可靠识别当前调用所属的会话。钩子另需持久 transcript（文本记录）的位置；搜索 `./.sessions` 等同于猜测部署配置和 JSONL 布局，自定义根目录、替代持久化后端、恢复、fork，以及并发运行的父子 agent，都会让这种猜测失效。未来的插件也可能需要向 shell 命令公开其他由 harness 所有的环境事实。
 
 这项边界必须维持两个属性：事实的所有者决定如何解析该事实；每个子进程接收每次执行的快照，而不是进程级可变全局状态。尤其是嵌套 harness 不能把环境中的 `DSH_*` 值泄漏给当前 agent、持久化后端或配置均可能不同的子进程。
 
@@ -33,12 +33,11 @@ interface SessionPersistence {
 
 注册表会为每次前台和后台 bash `ToolExecution` 重新构建受信任的覆盖层：
 
-- `DSH_HOME` 始终是配置的 Harness home 绝对路径。独立的 [`@deepseek-ai/dsh-home-paths`](../../../../packages/util/home-paths/README.md) 工具库规定其优先级：显式 `dshHome`，其次是环境中的 `$DSH_HOME`，最后是 `~/.dsh`。
 - `DSH_SHELL=1` 始终存在，用于标识由 DeepSeek Harness 管理、面向模型的 bash 子进程。
 - 执行具有关联 agent 时，`DSH_SESSION_ID` 存在并等于 `agent.session.header.id`。
-- 内置的持久化转换层提供 `DSH_SESSION_JSONL` 的条件是 `ctx.sessionPersistence.locate(header)` 返回 `kind: 'jsonl'`。
+- 根据[私有路径最小化决策](../simplification/2026-08-20-keep-private-paths-out-of-model-shells.md)，默认不提供 Harness 主目录与持久化位置。
 
-会话持久化仍然是事实所有者：JSONL 不依赖 tool-bash，也不会自行注册 shell 变量；钩子继续直接使用 `locate()`。tool-bash 是把持久化事实转换为 shell 约定的转换层。其他需要向 shell 公开事实的插件依赖该注册表，并注册各自的键；它们不修改 `process.env`。
+会话持久化仍然是位置所有者：JSONL 不依赖 tool-bash，钩子直接使用 `locate()`。其他确实需要向 shell 公开事实的受信任插件依赖该注册表并注册各自的键；它们不修改 `process.env`。
 
 bash seam 导出 `DSH_ENV_PREFIX` 作为唯一的命名空间来源，并派生 `DshEnvironmentKey`，其来源是该常量的 `typeof`。tool-bash 从该常量派生内置名称与模型指引，执行器则使用该常量过滤环境中已有的值。seam 通过 `ShellExecRequest.dshEnv`／`ShellExecSpec.dshEnv` 单独传递受管理的覆盖层：普通 `env` 仍是钩子所用的通用进程内插件接口，`dshEnv` 则以类型约束为受管理键。本地执行器移除环境中继承的全部受管理键，依次应用普通清理、终端环境和显式 `env`，最后合并受信任的 `dshEnv` 快照，因此 `env` 条目永远无法顶掉受管理的值。这保证了值缺失表示它当前确实不存在，而不是从外层或先前的 harness 继承而来。面向模型的工具仍忽略模型提供的 `env`／`stdin` 参数。
 
@@ -52,21 +51,21 @@ bash 工具说明只讲解持久约定：当前 harness 环境事实通过受管
 
 ## 生命周期与持久化语义
 
-新会话在第一个轮次之前获得 id，因此它的首次 bash 调用即可读取 `DSH_SESSION_ID` 和 JSONL 目标。JSONL 文件可能要等到第一次成功的轮次结束检查点后才存在，而且在一个轮次仍未结束时，它只包含上次刷写的前缀。`DSH_SESSION_JSONL` 是位置提示，不是授权凭据或新鲜度保证。
+新会话在第一个轮次之前获得 id，因此它的首次 bash 调用即可读取 `DSH_SESSION_ID`。JSONL 文件可能要等到第一次成功的轮次结束检查点后才存在，而且在一个轮次仍未结束时，它只包含上次刷写的前缀；使用 `locate()` 的受信任 Host 消费方会处理这种新鲜度区别。
 
 恢复操作复用已加载的 header，因此 id 和位置不变。fork 和 spawn 会创建新的会话 id 与位置。父子调用分别从自己的 `ToolExecution.agent` 解析事实；即使调用重叠，每条命令也会收到不可变快照。替换持久化服务会影响后续收集，因为转换层在执行时查询 `ctx.get('sessionPersistence')`；注册表本身受 effect 作用域约束，并且可安全用于 HMR（热模块替换）。
 
-`dshHome` 是与会话无关的部署上下文。agent-core 通过 `@deepseek-ai/dsh-home-paths` 解析出一个值，并将其同时传给 tool-bash 和本地 skill（技能）发现；独立消费方调用同一解析器。如果顶层 `dshHome` 与 `skills.local.dshHome` 均已提供但解析结果不同，组合会失败，而不会公开互相矛盾的 home。持久化可以独立变更，无需把其事实冻结到会话前缀中。
+`dshHome` 仍是与会话无关的部署上下文，由 `@deepseek-ai/dsh-home-paths` 为本地 skill（技能）发现等受信任 Host 消费方解析。agent-core 不会把它传入模型 shell 环境。持久化可以独立变更，无需把其事实冻结到会话前缀中。
 
 ## 测试
 
-单元测试覆盖注册表声明校验、effect 释放、逐次执行收集、`dshHome` 优先级，以及本地执行器清理并重建 `DSH_*` 的顺序。请求录制测试覆盖前台／后台快照、无 agent 调用、持久化不存在或为 JSONL、忽略模型 `env`，以及父子隔离。JSONL／SQLite 定位器约定测试与两套钩子桥接测试均锁定 transcript 可用和不可用两种方言。
+单元测试覆盖注册表声明校验、effect 释放、逐次执行收集，以及本地执行器清理并重建 `DSH_*` 的顺序。请求录制测试覆盖前台／后台快照、无 agent 调用、忽略模型 `env`、私有位置缺失，以及父子隔离。JSONL／SQLite 定位器约定测试与两套钩子桥接测试均锁定 transcript 可用和不可用两种方言。
 
-一项无密钥的完整循环集成测试会在第一个轮次驱动真实的 agent loop、JSONL 持久化、tool-bash 与 bash-local。子进程打印 `DSH_HOME`、`DSH_SHELL`、会话 id、JSONL 目标和继承的陈旧哨兵值；测试校验当前值、陈旧变量不存在、刷写前文件不存在，并最终检查持久化 header。快照测试会固定录制请求 header 中的通用 bash 说明。该约定属于确定性的本地执行，不涉及模型选择，因此无需带密钥测试。
+一项无密钥的完整循环集成测试会在第一个轮次驱动真实的 agent loop、JSONL 持久化、tool-bash 与 bash-local。子进程打印 shell 标记、会话 id、继承的存储位置变量和陈旧哨兵值；测试校验当前身份、私有位置缺失，并最终检查持久化 header。快照测试会固定通用 bash 说明与组装后的结果。该行为属于确定性的本地执行，不涉及模型选择，因此无需带密钥测试。
 
 ## 考虑过的替代方案
 
-**只提供 id，再用 `find`。** 搜索无法得知自定义根目录或后端布局，并且在多会话环境下存在竞态。
+**向 shell 提供 id 并教它用 `find` 查找 transcript。** 拒绝，因为 shell 不需要访问 Host 私有存储。钩子使用 `locate()`，模型 shell 只保留身份。
 
 **只提供绝对路径。** 路径可能不可用、延迟创建或取决于表示形式，不能作为稳定的会话标识。
 
@@ -82,6 +81,6 @@ bash 工具说明只讲解持久约定：当前 harness 环境事实通过受管
 
 ## 影响
 
-每个面向模型的 bash 子进程都会收到当前 Harness home 和 shell 标识，关联 agent 的调用还会收到稳定的会话标识。使用 JSONL 后端的调用可以获得可选的目标路径；非文件持久化会如实省略该值。这些子进程中受管理的 `DSH_*` 事实来自 harness：系统移除环境中已有的受管理值、在最后重新加入当前受信任的值，普通调用方的 `env` 条目无法顶掉它们。
+每个面向模型的 bash 子进程都会收到 shell 标识，关联 agent 的调用还会收到稳定的会话标识。Harness 主目录与持久化路径不在默认快照中。这些子进程中受管理的 `DSH_*` 事实来自 harness：系统移除环境中已有的受管理值、在最后重新加入当前受信任的值，普通调用方的 `env` 条目无法顶掉它们。
 
-该命名空间可被发现，但并非秘密。路径可能泄露配置的根目录，延迟创建的目标也可能不存在或处于陈旧状态，而且命令可以在自己的 shell 语法中覆盖变量。消费方应把这些值视为关联信息和环境事实，在归属关系重要时校验 transcript 元数据，并依靠沙箱／文件系统策略而不是变量保密性来完成授权。
+该命名空间可被发现，但并非秘密，而且命令可以在自己的 shell 语法中覆盖变量。消费方应把其默认值视为会话关联信息和环境事实。在归属关系重要时，由受信任 Host 消费方校验 transcript 元数据；存储访问依靠沙箱／文件系统策略授权，而不是变量保密性。

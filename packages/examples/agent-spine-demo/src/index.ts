@@ -73,7 +73,7 @@ export interface GoalConfig {
  * `persona`, and `toolOrder` to the system-prompt plugin (the fixed opener,
  * dynamic-context policy, deployment persona, and explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
+ * `dshHome` to local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * agent-instructions loader, `jobs` to the process-local job provider, and
@@ -104,7 +104,7 @@ export interface Config {
   toolOrder?: SystemPromptConfig['toolOrder']
   /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
   tools?: ToolsConfig
-  /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
+  /** DeepSeek Harness home directory used by local skill discovery. */
   dshHome?: string
   /** Deterministic fallback and accepted-title limits; omission uses the bundle's example policy. */
   sessionTitle?: SessionTitleConfig
@@ -248,7 +248,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(scopeInvariant)
   ctx.plugin(agentLoopInvariant)
   if (config.toolBash !== false) {
-    ctx.plugin(bashEnv, { dshHome })
+    ctx.plugin(bashEnv)
     ctx.plugin(toolBash, config.toolBash ?? {})
   }
   if (config.workspaceContext !== false) {
