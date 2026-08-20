@@ -358,13 +358,14 @@ describe('hand-declared providers', () => {
   })
 
   it('authenticates an unauthenticated route through a configured header', async () => {
+    vi.stubEnv('PI_HEADER_KEY', 'local')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness({
       providers: {
         'local-llm': {
           api: 'openai-completions',
           baseURL: `${server.url}/v1`,
-          headers: { Authorization: 'Bearer local' },
+          credentialHeaders: { Authorization: { credentialEnv: 'PI_HEADER_KEY', scheme: 'Bearer' } },
           models: [{ id: 'qwen3', contextWindow: 32_768, maxTokens: 2048 }],
         },
       },
@@ -1065,6 +1066,7 @@ describe('resolution snapshots', () => {
       // Credential resolution is the real await inside a stream call, and the
       // window a configuration change has to land in.
       resolveApiKey: async () => { await held; return 'k' },
+      resolveCredentialHeaders: () => Promise.resolve({}),
     })
 
     const chunks: StreamChunk[] = []
@@ -1093,7 +1095,11 @@ describe('resolution snapshots', () => {
     const first = await mockServer([{ events: textEvents }])
     const second = await mockServer([{ events: textEvents }])
     let current = resolveProfiles({ deepseek: { baseURL: `${first.url}/v1` } })
-    const adapter = new PiAiAdapter({ profiles: () => current, resolveApiKey: () => Promise.resolve('k') })
+    const adapter = new PiAiAdapter({
+      profiles: () => current,
+      resolveApiKey: () => Promise.resolve('k'),
+      resolveCredentialHeaders: () => Promise.resolve({}),
+    })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],

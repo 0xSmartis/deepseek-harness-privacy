@@ -28,11 +28,11 @@ Status: implemented
 
 ### 显式 pi-ai 提供方配置
 
-`dsh-llm-pi-ai` 接受一个非空的提供方配置列表。列表内的提供方名称必须唯一，并且存在于 pi-ai 的 `getProviders()` 结果中。每项配置包含提供方名称，以及可选的 `apiKey`、`baseURL`、headers、推理级别和预算、缓存保留设置、传输方式、SDK 超时、Harness 流空闲超时，以及由提供方拥有的 `retryPolicy`。适配器强制将 pi-ai 的 `maxRetries` 设为零，使一次 `stream()` 调用只发起一次可见的提供方请求；`dsh-llm-retry` 则在 agent 失败步骤扩展点上执行解析后的策略。凭据不设全局值：显式密钥仅对所属配置生效；未提供密钥时，pi-ai 使用标准环境变量、OAuth token、AWS 凭据链、Google ADC 或其他提供方原生环境认证。显式空密钥属于无效配置，不会回退到环境认证。
+`dsh-llm-pi-ai` 接受一份按路由键入的提供方 profile 字典。路由可以继承 pi-ai 已安装的提供方与 catalog，也可以自行声明端点、协议与模型。每个 profile 只携带凭据引用（`apiKeyEnv` 与可选的 `credentialHeaders`），绝不携带 literal 凭据值；header 机制由[只允许引用的提供方 header 决策](2026-08-20-reference-only-provider-headers.md)所有。其余字段配置 catalog 覆盖、推理、缓存、传输、SDK 超时、Harness 流空闲超时与提供方拥有的 `retryPolicy`。适配器强制将 pi-ai 的 `maxRetries` 设为零，使一次 `stream()` 调用只发起一次可见的提供方请求；`dsh-llm-retry` 则在 agent 失败步骤扩展点上执行解析后的策略。凭据按路由隔离；省略 `apiKeyEnv` 时仍可使用提供方原生的环境认证。
 
 插件通过一次全有或全无调用，将所有已配置的提供方名称注册到同一个 `PiAiAdapter`。请求按 provider 选择对应配置，并在 `getModels(provider)` 中查找模型以取得目录描述符。未知提供方会在插件加载时失败；未知模型会在网络 I/O 前以 `UNKNOWN_MODEL` 失败。适配器不会修改目录对象。当配置提供 `baseURL` 时，适配器复制选中的描述符，仅覆盖 `baseUrl`，使私有端点保留 pi-ai 的 API、能力、兼容标志、上下文限制与推理映射。私有端点必须实现所选提供方的协议，模型 ID 也仍须存在于已安装的 pi-ai 目录中。
 
-适配器调用 pi-ai 的 `streamSimple()`，因此每个目录模型会选择其注册的 API 实现；描述符为 `openai-responses` 时使用 OpenAI Responses，而非 Chat Completions。Harness 的 temperature、最大 token 数、signal、session ID，以及提供方配置中的通用流选项均直接传递。配置 headers 与 Harness 强制归因 headers 合并；发生保留名称冲突时，以 Harness 归因为准。适配器不再维护 DeepSeek 专用 payload 重写或提供方协议矩阵。
+适配器调用 pi-ai 的 `streamSimple()`，因此每个目录模型会选择其注册的 API 实现；描述符为 `openai-responses` 时使用 OpenAI Responses，而非 Chat Completions。Harness 的 temperature、最大 token 数、signal、session ID，以及提供方配置中的通用流选项均直接传递。credential header 会针对一次请求从 host credential 服务解析；profile 校验会拒绝 Harness 归因名称。适配器不再维护 DeepSeek 专用 payload 重写或提供方协议矩阵。
 
 pi-ai 的通用流选项不支持停止序列。若 Harness `stop` 选项已定义，`dsh-llm-pi-ai` 会以 `UNSUPPORTED_OPTION` 拒绝请求，不会静默忽略，也不会增加第二套提供方专用 payload 实现。`dsh-llm-deepseek` 继续通过原生请求序列化器支持 `stop`。
 

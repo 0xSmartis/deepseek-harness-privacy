@@ -1038,8 +1038,10 @@ export interface PiAiProviderProfile {
    * to answer instead.
    */
   defaultInput?: PiAiModality[]
-  /** Provider request headers; Harness attribution wins reserved names. */
-  headers?: Record<string, string>
+  /** Provider request headers whose values resolve from credential references per request. */
+  credentialHeaders?: Record<string, PiAiCredentialHeader>
+  /** Provider request header names sent with an empty value, for SDK defaults that must be suppressed. */
+  emptyHeaders?: string[]
   /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
@@ -1193,6 +1195,14 @@ export interface PiAiCompatProfile {
 /** One request modality a pi-ai model may accept. */
 export type PiAiModality = Model<Api>['input'][number]
 
+/** One provider header whose value is resolved from host-owned credential storage per request. */
+export interface PiAiCredentialHeader {
+  /** Credential reference (environment-variable name) resolved through `ctx.credentials`. */
+  credentialEnv: string
+  /** Optional HTTP authentication scheme prepended with one space, such as `Bearer`. */
+  scheme?: string
+}
+
 /**
  * Selectable reasoning efforts for one model: each key is a level the model
  * offers (and selectors show), and its value is the wire spelling dispatch
@@ -1209,7 +1219,7 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`)
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:201`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

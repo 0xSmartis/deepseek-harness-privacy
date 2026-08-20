@@ -47,6 +47,7 @@ function adapterOf(
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
     resolveApiKey: () => Promise.resolve(apiKey),
+    resolveCredentialHeaders: () => Promise.resolve({}),
   })
 }
 
@@ -73,14 +74,47 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
-  it('merges profile headers with Harness attribution winning', async () => {
+  it('resolves profile credential headers while preserving Harness attribution', async () => {
+    vi.stubEnv('PI_HEADER_KEY', 'private')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
-      headers: { 'x-company': 'private', 'User-Agent': 'wrong' },
+      credentialHeaders: { 'x-company': { credentialEnv: 'PI_HEADER_KEY' } },
     })
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.['x-company']).toBe('private')
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+  })
+
+  it('fails before network when a credential-header reference is missing', async () => {
+    vi.stubEnv('PI_HEADER_KEY', '')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url, {
+      credentialHeaders: { Authorization: { credentialEnv: 'PI_HEADER_KEY', scheme: 'Bearer' } },
+    })
+
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+
+    expect(result.finish.kind).toBe('error')
+    if (result.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(result.finish.failure.code).toBe('MISSING_CREDENTIAL')
+    expect(result.finish.failure.message).toContain('PI_HEADER_KEY')
+    expect(server.requests).toEqual([])
+  })
+
+  it('never echoes an invalid credential-header value', async () => {
+    vi.stubEnv('PI_HEADER_KEY', 'secret-\u{1F600}-do-not-echo')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url, {
+      credentialHeaders: { Authorization: { credentialEnv: 'PI_HEADER_KEY', scheme: 'Bearer' } },
+    })
+
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const failure = result.finish.kind === 'error' ? result.finish.failure : undefined
+
+    expect(failure).toMatchObject({ code: 'INVALID_CREDENTIAL' })
+    expect(failure?.message).toContain('PI_HEADER_KEY')
+    expect(failure?.message).not.toContain('do-not-echo')
+    expect(server.requests).toEqual([])
   })
 
   it('forwards common stream options and profile reasoning', async () => {
@@ -286,7 +320,8 @@ describe('PiAiAdapter provider routing', () => {
         openai: {
           apiKeyEnv: 'PI_TEST_KEY',
           baseURL: `${server.url}/api/projects/openai/openai/v1`,
-          headers: { 'api-key': 'test-key', Authorization: '' },
+          credentialHeaders: { 'api-key': { credentialEnv: 'PI_TEST_KEY' } },
+          emptyHeaders: ['Authorization'],
         },
       },
     })
@@ -714,7 +749,7 @@ describe('provider profile lifecycle', () => {
   it('falls back to the ambient environment for apiKeyEnv without the credentials seam', async () => {
     vi.stubEnv('PI_CUSTOM_REF_KEY', 'custom-ref-key')
     const server = await mockServer([{ events: textEvents }])
-    const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
+    const ctx = await harness(server.url, { apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer custom-ref-key')
   })
@@ -726,7 +761,7 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('PI_CUSTOM_REF_KEY', '')
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
-    const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
+    const ctx = await harness(server.url, { apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
     const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })

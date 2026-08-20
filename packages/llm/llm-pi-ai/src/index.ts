@@ -57,7 +57,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
@@ -71,6 +71,7 @@ export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {
   PiAiCompatProfile,
+  PiAiCredentialHeader,
   PiAiModality,
   PiAiModelOverride,
   PiAiModelProfile,
@@ -78,6 +79,7 @@ export type {
   PiAiReasoningEfforts,
   PiAiThinkingFormat,
   ResolvedPiAiProviderProfile,
+  ResolvedPiAiCredentialHeader,
 } from './config.ts'
 export { supportedProtocols } from './provider.ts'
 
@@ -197,9 +199,48 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
+  const resolveCredentialHeaders = async (
+    provider: string,
+    profile: ResolvedPiAiProviderProfile,
+  ): Promise<Readonly<Record<string, string>>> => {
+    const resolved: Record<string, string> = {}
+    for (const [name, header] of Object.entries(profile.credentialHeaders ?? {})) {
+      const ref = header.credentialEnv
+      const credentials = ctx.get('credentials')
+      const hit = credentials !== undefined
+        ? (await credentials.resolve(ref))?.value
+        : launchEnvironmentOf(ctx).get(ref)?.value
+      if (hit === undefined || hit.length === 0) {
+        throw new LlmError(
+          `llm-pi-ai: no credential for provider route "${provider}" header ${JSON.stringify(name)};`
+          + ` its profile resolves ${ref}, which is not set — store ${ref} through the credentials service`
+          + ' (the web Models page writes credentials) or export it',
+          'MISSING_CREDENTIAL',
+        )
+      }
+      const checked = normalizeApiKey(hit)
+      if (!checked.ok) {
+        throw new LlmError(
+          checked.reason === 'empty'
+            ? `llm-pi-ai: provider route "${provider}" header ${JSON.stringify(name)} resolves ${ref} as blank;`
+              + ` set ${ref} to the raw credential`
+            : `llm-pi-ai: provider route "${provider}" header ${JSON.stringify(name)} resolves ${ref}`
+              + ' with characters no HTTP header can carry;'
+              + ` set ${ref} to the raw credential alone`,
+          INVALID_CREDENTIAL_CODE,
+        )
+      }
+      resolved[name] = header.scheme === undefined
+        ? checked.value
+        : `${header.scheme} ${checked.value}`
+    }
+    return resolved
+  }
+
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
+    resolveCredentialHeaders,
     resolveAttachments: () => ctx.get('attachments'),
     onReplayDegrade: ({ provider, model, reason }) => {
       ctx.logger.warn(

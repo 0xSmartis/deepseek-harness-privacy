@@ -13,10 +13,10 @@
  * way down: switching models mid-reply takes effect on the next step, never
  * inside the one in flight.
  *
- * Credentials stay outside that collection. The harness resolves a route's key
- * through its own seam and passes it as the request's `apiKey` option, which
- * pi-ai treats as the highest-priority auth override — so `Models` never holds
- * a credential store and the harness keeps its fail-loud reference semantics.
+ * Credentials stay outside that collection. The harness resolves a route's API
+ * key and credential-header references through its own seam, then passes only
+ * the request-local values to pi-ai, so `Models` never holds a credential store
+ * and the harness keeps its fail-loud reference semantics.
  *
  * @module dsh-llm-pi-ai/adapter
  */
@@ -74,6 +74,11 @@ export interface PiAiAdapterOptions {
    * `MISSING_CREDENTIAL` rather than falling back.
    */
   resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
+  /** Resolve this route's configured credential headers for one stream call. */
+  resolveCredentialHeaders: (
+    provider: string,
+    profile: ResolvedPiAiProviderProfile,
+  ) => Promise<Readonly<Record<string, string>>>
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
   /**
@@ -173,12 +178,15 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/** Merge resolved credential headers and explicit empty overrides with Harness-owned attribution. */
+function requestHeaders(
+  profile: ResolvedPiAiProviderProfile,
+  credentials: Readonly<Record<string, string>>,
+): Record<string, string> {
   const attribution = attributionHeaders()
-  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
   return {
-    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+    ...Object.fromEntries((profile.emptyHeaders ?? []).map(name => [name, ''])),
+    ...credentials,
     ...attribution,
   }
 }
@@ -295,6 +303,7 @@ export class PiAiAdapter extends LlmAdapter {
       options.reasoningEffort ?? profile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    const credentialHeaders = await this.config.resolveCredentialHeaders(options.provider, profile)
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -324,9 +333,7 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile, credentialHeaders),
       })
       const iterator = toStreamChunks(events, model.contextWindow)[Symbol.asyncIterator]()
       let exhausted = false

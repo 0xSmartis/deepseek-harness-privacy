@@ -25,7 +25,7 @@ async function harness(_model: string, config: Partial<PiAiProviderProfile> = {}
   await ctx.plugin(LlmPiAi, {
     providers: {
       deepseek: {
-        ...process.env.DEEPSEEK_API_KEY === undefined ? {} : { apiKey: process.env.DEEPSEEK_API_KEY },
+        apiKeyEnv: 'DEEPSEEK_API_KEY',
         ...process.env.DEEPSEEK_BASE_URL === undefined ? {} : { baseURL: process.env.DEEPSEEK_BASE_URL },
         ...config,
       },

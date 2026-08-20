@@ -18,16 +18,17 @@ interface ProviderCase {
   provider: 'openai' | 'anthropic'
   api: 'openai-responses' | 'anthropic-messages'
   model: string
-  apiKey?: string
+  apiKeyEnv?: string
   baseURL?: string
-  headers?: Record<string, string>
+  credentialHeaders?: LlmPiAi.PiAiProviderProfile['credentialHeaders']
+  emptyHeaders?: string[]
 }
 
 const openAIBaseURL = process.env.DSH_PI_AI_OPENAI_BASE_URL
-const azureOpenAIKey = process.env.AZURE_OPENAI_API_KEY
+const hasAzureOpenAIKey = process.env.AZURE_OPENAI_API_KEY !== undefined
 // Strictly ANTHROPIC_*: the DeepSeek endpoint does not serve the anthropic-messages
 // protocol, so falling back to DEEPSEEK_API_KEY turns the keyless skip into a 404.
-const anthropicApiKey = process.env.ANTHROPIC_API_KEY
+const hasAnthropicApiKey = process.env.ANTHROPIC_API_KEY !== undefined
 const anthropicBaseURL = process.env.DSH_PI_AI_ANTHROPIC_BASE_URL
 
 const providerCases: ProviderCase[] = [
@@ -35,8 +36,12 @@ const providerCases: ProviderCase[] = [
     provider: 'openai',
     api: 'openai-responses',
     model: process.env.DSH_PI_AI_OPENAI_MODEL ?? 'gpt-5.5',
-    ...azureOpenAIKey
-      ? { apiKey: azureOpenAIKey, headers: { 'api-key': azureOpenAIKey, Authorization: '' } }
+    ...hasAzureOpenAIKey
+      ? {
+        apiKeyEnv: 'AZURE_OPENAI_API_KEY',
+        credentialHeaders: { 'api-key': { credentialEnv: 'AZURE_OPENAI_API_KEY' } },
+        emptyHeaders: ['Authorization'],
+      }
       : {},
     ...openAIBaseURL ? { baseURL: openAIBaseURL } : {},
   },
@@ -44,7 +49,7 @@ const providerCases: ProviderCase[] = [
     provider: 'anthropic',
     api: 'anthropic-messages',
     model: process.env.DSH_PI_AI_ANTHROPIC_MODEL ?? 'claude-opus-4-8',
-    ...anthropicApiKey === undefined ? {} : { apiKey: anthropicApiKey },
+    ...hasAnthropicApiKey ? { apiKeyEnv: 'ANTHROPIC_API_KEY' } : {},
     ...anthropicBaseURL === undefined ? {} : { baseURL: anthropicBaseURL },
   },
 ]
@@ -57,9 +62,10 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, {
     providers: Object.fromEntries(providerCases.map(profile => [profile.provider, {
-      ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
+      ...profile.apiKeyEnv === undefined ? {} : { apiKeyEnv: profile.apiKeyEnv },
       ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
-      ...profile.headers === undefined ? {} : { headers: profile.headers },
+      ...profile.credentialHeaders === undefined ? {} : { credentialHeaders: profile.credentialHeaders },
+      ...profile.emptyHeaders === undefined ? {} : { emptyHeaders: profile.emptyHeaders },
     }])),
   })
   if (image !== undefined) {
@@ -146,7 +152,7 @@ const lookupTool: ToolSchema = {
 }
 
 for (const profile of providerCases) {
-  describe.skipIf(profile.apiKey === undefined)(
+  describe.skipIf(profile.apiKeyEnv === undefined)(
     `llm-pi-ai ${profile.provider} e2e (${profile.api})`,
     () => {
       it('streams text with usage and native replay metadata', async () => {

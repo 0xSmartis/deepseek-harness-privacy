@@ -27,6 +27,7 @@ function gatewayAdapter(): PiAiAdapter {
       },
     }),
     resolveApiKey: () => Promise.resolve('test-key'),
+    resolveCredentialHeaders: () => Promise.resolve({}),
   })
 }
 

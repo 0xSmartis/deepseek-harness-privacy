@@ -8,7 +8,7 @@
  * same guard.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -49,7 +49,11 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
   const settingsPath = join(root, 'settings.yaml')
   await writeFile(settingsPath, '# personal settings\n')
-  await writeFile(join(root, '.credentials.yaml'), 'PI_COMPOSITION_KEY: key-from-store\n', { mode: 0o600 })
+  await writeFile(
+    join(root, '.credentials.yaml'),
+    'PI_COMPOSITION_KEY: key-from-store\nPI_HEADER_TOKEN: header-from-store\n',
+    { mode: 0o600 },
+  )
 
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -111,6 +115,9 @@ describe('llm-pi-ai real dormant composition', () => {
       '  providers:',
       '    deepseek:',
       '      apiKeyEnv: PI_COMPOSITION_KEY',
+      '      credentialHeaders:',
+      '        x-private-token:',
+      '          credentialEnv: PI_HEADER_TOKEN',
       `      baseURL: ${server.url}`,
       '',
     ].join('\n'))
@@ -121,6 +128,8 @@ describe('llm-pi-ai real dormant composition', () => {
     const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
+    expect(server.headers[0]?.['x-private-token']).toBe('header-from-store')
+    expect(await readFile(settingsPath, 'utf8')).not.toContain('header-from-store')
   })
 
   it('continues natively after max-token assembly drops a tool call, with pruned replay metadata', async () => {

@@ -19,7 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import {
   CACHE_CONTROL_FORMATS,
@@ -79,6 +79,20 @@ export type {
   PiAiReasoningEfforts,
   PiAiThinkingFormat,
 } from './catalog.ts'
+
+/** One provider header whose value is resolved from host-owned credential storage per request. */
+export interface PiAiCredentialHeader {
+  /** Credential reference (environment-variable name) resolved through `ctx.credentials`. */
+  credentialEnv: string
+  /** Optional HTTP authentication scheme prepended with one space, such as `Bearer`. */
+  scheme?: string
+}
+
+/** A validated provider credential-header declaration. */
+export interface ResolvedPiAiCredentialHeader extends Omit<PiAiCredentialHeader, 'credentialEnv'> {
+  /** Validated credential reference. */
+  credentialEnv: CredentialRef
+}
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
@@ -140,8 +154,10 @@ export interface PiAiProviderProfile {
    * to answer instead.
    */
   defaultInput?: PiAiModality[]
-  /** Provider request headers; Harness attribution wins reserved names. */
-  headers?: Record<string, string>
+  /** Provider request headers whose values resolve from credential references per request. */
+  credentialHeaders?: Record<string, PiAiCredentialHeader>
+  /** Provider request header names sent with an empty value, for SDK defaults that must be suppressed. */
+  emptyHeaders?: string[]
   /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
@@ -169,13 +185,17 @@ export interface PiAiProviderProfile {
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
 export interface ResolvedPiAiProviderProfile
-  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'credentialHeaders' | 'emptyHeaders' | 'retryPolicy' | 'models' | 'displayName'> {
   /** Harness route key and the `Models` collection key (the configuration dict key). */
   provider: string
   /** Resolved display name for selectors and configuration surfaces. */
   displayName: string
   /** Validated credential reference, when one is configured. */
   apiKeyEnv?: CredentialRef
+  /** Validated credential-header references keyed by HTTP header name. */
+  credentialHeaders?: Readonly<Record<string, ResolvedPiAiCredentialHeader>>
+  /** Validated header names sent with an empty value. */
+  emptyHeaders?: readonly string[]
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Positive request-level base64 image payload bound after defaulting. */
@@ -292,6 +312,11 @@ const modelProfile: z<PiAiModelProfile> = z.object({
 /** A {@link modelProfile} whose id lives in the `modelOverrides` dict key. */
 const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 
+const credentialHeader: z<PiAiCredentialHeader> = z.object({
+  credentialEnv: z.string().role('credential-ref').required(),
+  scheme: z.string(),
+})
+
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
@@ -303,7 +328,8 @@ const profile = z.object({
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
-  headers: z.dict(z.string()),
+  credentialHeaders: z.dict(credentialHeader),
+  emptyHeaders: z.array(z.string()),
   reasoning: z.union(THINKING_LEVELS),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
@@ -339,6 +365,8 @@ export function assertServiceable(config: Config): void {
 /** Reject removed pre-release profile fields and name their replacements. */
 function rejectRemovedFields(provider: string, source: PiAiProviderProfile): void {
   const legacy = source as PiAiProviderProfile & {
+    apiKey?: unknown
+    headers?: unknown
     provider?: unknown
     maxRetries?: unknown
     maxRetryDelayMs?: unknown
@@ -346,12 +374,75 @@ function rejectRemovedFields(provider: string, source: PiAiProviderProfile): voi
   if ('provider' in legacy) {
     throw new Error(`llm-pi-ai: provider "${provider}" sets "provider", which moved to the providers dict key`)
   }
+  if ('apiKey' in legacy) {
+    throw new Error(
+      `llm-pi-ai: provider "${provider}" sets literal apiKey, which was removed;`
+      + ' store the value through the credentials service and configure apiKeyEnv',
+    )
+  }
+  if ('headers' in legacy) {
+    throw new Error(
+      `llm-pi-ai: provider "${provider}" sets literal headers, which were removed;`
+      + ' store each value through the credentials service and configure credentialHeaders references',
+    )
+  }
   if ('maxRetries' in legacy || 'maxRetryDelayMs' in legacy) {
     throw new Error(
       `llm-pi-ai: provider "${provider}" sets maxRetries or maxRetryDelayMs, which were removed;`
       + ' compose agent recovery with dsh-llm-retry',
     )
   }
+}
+
+/** RFC 9110 token syntax, shared by HTTP field names and authentication schemes. */
+const HTTP_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+const RESERVED_HEADERS = new Set(Object.keys(attributionHeaders()).map(name => name.toLowerCase()))
+
+/** Validate and detach one route's credential-header reference map. */
+function resolveCredentialHeaders(
+  provider: string,
+  headers: Readonly<Record<string, PiAiCredentialHeader>> | undefined,
+  emptyHeaders: readonly string[] | undefined,
+): Readonly<Record<string, ResolvedPiAiCredentialHeader>> | undefined {
+  if (Object.keys(headers ?? {}).length === 0 && (emptyHeaders?.length ?? 0) === 0) return undefined
+  const resolved: Record<string, ResolvedPiAiCredentialHeader> = {}
+  const normalizedNames = new Set<string>()
+  for (const [name, header] of Object.entries(headers ?? {})) {
+    if (!HTTP_TOKEN.test(name)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" has an invalid credentialHeaders name ${JSON.stringify(name)}`)
+    }
+    const normalizedName = name.toLowerCase()
+    if (normalizedNames.has(normalizedName)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" repeats credential header ${JSON.stringify(name)} case-insensitively`)
+    }
+    if (RESERVED_HEADERS.has(normalizedName)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" cannot replace Harness-owned header ${JSON.stringify(name)}`)
+    }
+    if (header.scheme !== undefined && !HTTP_TOKEN.test(header.scheme)) {
+      throw new Error(
+        `llm-pi-ai: provider "${provider}" credential header ${JSON.stringify(name)} has an invalid HTTP scheme`,
+      )
+    }
+    normalizedNames.add(normalizedName)
+    resolved[name] = {
+      credentialEnv: credentialRef(header.credentialEnv),
+      ...header.scheme === undefined ? {} : { scheme: header.scheme },
+    }
+  }
+  for (const name of emptyHeaders ?? []) {
+    if (!HTTP_TOKEN.test(name)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" has an invalid emptyHeaders name ${JSON.stringify(name)}`)
+    }
+    const normalizedName = name.toLowerCase()
+    if (normalizedNames.has(normalizedName)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" repeats request header ${JSON.stringify(name)} case-insensitively`)
+    }
+    if (RESERVED_HEADERS.has(normalizedName)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" cannot replace Harness-owned header ${JSON.stringify(name)}`)
+    }
+    normalizedNames.add(normalizedName)
+  }
+  return resolved
 }
 
 /**
@@ -415,16 +506,28 @@ export function resolveProfiles(
       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
     })
-    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const {
+      apiKeyEnv,
+      credentialHeaders,
+      emptyHeaders,
+      retryPolicy,
+      models: _models,
+      displayName: _displayName,
+      ...rest
+    } = source
+    const resolvedCredentialHeaders = resolveCredentialHeaders(provider, credentialHeaders, emptyHeaders)
     resolved.set(provider, {
       ...rest,
       provider,
       displayName,
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
+      ...resolvedCredentialHeaders === undefined || Object.keys(resolvedCredentialHeaders).length === 0
+        ? {}
+        : { credentialHeaders: resolvedCredentialHeaders },
+      ...emptyHeaders === undefined || emptyHeaders.length === 0 ? {} : { emptyHeaders: [...emptyHeaders] },
       streamIdleTimeoutMs,
       maxRequestImageBytes,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
-      ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
       piProvider: buildProvider({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertServiceable, Config } from '../src/config.ts'
+import { assertServiceable, Config, resolveProfiles } from '../src/config.ts'
 
 /** Validate one hand-declared route, with the caller's fields layered onto it. */
 const routeWith = (profile: Record<string, unknown>): (() => unknown) =>
@@ -62,5 +62,57 @@ describe('modality schema boundary', () => {
     const absent = configWith({})() as Materialized
     expect(absent.providers['acme-gateway']?.models?.[0]?.input).toEqual([])
     expect(absent.providers['acme-gateway']?.defaultInput).toEqual(['text'])
+  })
+})
+
+describe('credential header configuration', () => {
+  it('resolves only credential references and non-secret schemes', () => {
+    const profile = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'm' }],
+        credentialHeaders: {
+          Authorization: { credentialEnv: 'ACME_ACCESS_TOKEN', scheme: 'Bearer' },
+          'api-key': { credentialEnv: 'ACME_API_KEY' },
+        },
+        emptyHeaders: ['x-sdk-default'],
+      },
+    }).get('acme-gateway')
+
+    expect(profile?.credentialHeaders).toEqual({
+      Authorization: { credentialEnv: 'ACME_ACCESS_TOKEN', scheme: 'Bearer' },
+      'api-key': { credentialEnv: 'ACME_API_KEY' },
+    })
+    expect(profile?.emptyHeaders).toEqual(['x-sdk-default'])
+  })
+
+  it.each([
+    [{ apiKey: 'secret' }, /literal apiKey, which was removed; store the value through the credentials service/],
+    [
+      { headers: { Authorization: 'Bearer secret' } },
+      /literal headers, which were removed; store each value through the credentials service/,
+    ],
+  ] as const)('rejects removed literal credentials with migration guidance', (fields, message) => {
+    expect(() => resolveProfiles({ 'acme-gateway': fields as never })).toThrow(message)
+  })
+
+  it.each([
+    ['an invalid header name', { credentialHeaders: { 'bad header': { credentialEnv: 'ACME_KEY' } } }, /invalid credentialHeaders name/],
+    ['an invalid scheme', { credentialHeaders: { Authorization: { credentialEnv: 'ACME_KEY', scheme: 'Bearer token' } } }, /invalid HTTP scheme/],
+    ['a Harness-owned header', { credentialHeaders: { 'user-agent': { credentialEnv: 'ACME_KEY' } } }, /cannot replace Harness-owned header/],
+    ['case-insensitive duplicates', {
+      credentialHeaders: { Authorization: { credentialEnv: 'ACME_KEY' } },
+      emptyHeaders: ['authorization'],
+    }, /repeats request header/],
+  ] as const)('rejects %s', (_label, fields, message) => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'm' }],
+        ...fields,
+      } as never,
+    })).toThrow(message)
   })
 })
